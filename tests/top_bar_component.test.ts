@@ -44,7 +44,6 @@ jest.mock("../src/components/composer/content_editable_helper", () =>
 jest.mock("../src/helpers/figures/images/image_provider", () =>
   require("./__mocks__/mock_image_provider")
 );
-jest.mock("../src/helpers/uuid", () => require("./__mocks__/uuid"));
 
 mockGetBoundingClientRect({
   "o-spreadsheet": () => ({ x: 0, y: 0, width: 1000, height: 1000 }),
@@ -340,6 +339,18 @@ describe("TopBar component", () => {
     expect(getStyle(model, "A1").fontSize).toBe(8);
   });
 
+  test("prevents default behavior of mouse wheel event on font size input", async () => {
+    await mountParent();
+    const fontSizeInput = fixture.querySelector("input.o-font-size") as HTMLInputElement;
+
+    const event = new WheelEvent("wheel", { deltaY: 100 });
+    const preventDefaultSpy = jest.spyOn(event, "preventDefault");
+
+    fontSizeInput.dispatchEvent(event);
+
+    expect(preventDefaultSpy).toHaveBeenCalled();
+  });
+
   describe("horizontal align", () => {
     test.each([
       ["Left (Ctrl+Shift+L)", { align: "left" }],
@@ -589,7 +600,9 @@ describe("TopBar component", () => {
   test("Keep focus on the composer when clicked in readonly mode", async () => {
     ({ fixture } = await mountParent(new Model({}, { mode: "readonly" })));
 
-    let composerEl = fixture.querySelector(".o-spreadsheet-topbar div.o-composer")! as HTMLElement;
+    const topBarComposerEl = fixture.querySelector<HTMLElement>(".o-topbar-composer")!;
+    expect(topBarComposerEl.classList).toContain("o-topbar-composer-readonly");
+    const composerEl = fixture.querySelector<HTMLElement>(".o-spreadsheet-topbar div.o-composer")!;
     expect(document.activeElement).not.toBe(composerEl);
     await simulateClick(composerEl);
     expect(document.activeElement).toBe(composerEl);

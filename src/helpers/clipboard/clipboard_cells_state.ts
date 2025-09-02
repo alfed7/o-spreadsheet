@@ -2,6 +2,7 @@ import { cellStyleToCss, cssPropertiesToCss } from "../../components/helpers";
 import { SELECTION_BORDER_COLOR } from "../../constants";
 import { SelectionStreamProcessor } from "../../selection_stream/selection_stream_processor";
 import {
+  Border,
   CellPosition,
   ClipboardCell,
   CommandDispatcher,
@@ -17,16 +18,16 @@ import {
 } from "../../types";
 import { ClipboardMIMEType, ClipboardOperation, ClipboardOptions } from "../../types/clipboard";
 import { xmlEscape } from "../../xlsx/helpers/xml_helpers";
-import { toXC } from "../coordinates";
 import { formatValue } from "../format";
-import { deepEquals, range } from "../misc";
+import { deepCopy, deepEquals, range } from "../misc";
+import { futureRecomputeZones } from "../recompute_zones";
 import { UuidGenerator } from "../uuid";
 import {
   createAdaptedZone,
   isInside,
   mergeOverlappingZones,
+  positionToZone,
   positions,
-  recomputeZones,
   union,
 } from "../zones";
 import { ClipboardCellsAbstractState } from "./clipboard_abstract_cell_state";
@@ -42,6 +43,16 @@ export class ClipboardCellsState extends ClipboardCellsAbstractState {
   private readonly copiedTables: CopiedTable[];
   private readonly zones: Zone[];
   private readonly uuidGenerator = new UuidGenerator();
+
+  private queuedBordersToAdd: Record<string, Zone[]> = {};
+  private queuedCFChanges: Record<
+    UID,
+    { toAdd: Zone[]; toRemove: Zone[]; cf: ConditionalFormat }[]
+  > = {};
+  private queuedDVChanges: Record<
+    UID,
+    { toAdd: Zone[]; toRemove: Zone[]; rule: DataValidationRule }[]
+  > = {};
 
   constructor(
     zones: Zone[],
@@ -175,6 +186,8 @@ export class ClipboardCellsState extends ClipboardCellsAbstractState {
    * Paste the clipboard content in the given target
    */
   paste(target: Zone[], options?: ClipboardOptions | undefined) {
+    this.queuedCFChanges = {};
+    this.queuedDVChanges = {};
     if (this.operation === "COPY") {
       this.pasteFromCopy(target, options);
     } else {
@@ -186,6 +199,8 @@ export class ClipboardCellsState extends ClipboardCellsAbstractState {
     if (options?.selectTarget) {
       this.selectPastedZone(width, height, isCutOperation, target);
     }
+
+    this.executeQueuedChanges(this.getters.getActiveSheetId());
   }
 
   private pasteFromCopy(target: Zone[], options?: ClipboardOptions) {
@@ -316,13 +331,10 @@ export class ClipboardCellsState extends ClipboardCellsAbstractState {
    * Clear the clipped zones: remove the cells and clear the formatting
    */
   private clearClippedZones() {
-    for (const row of this.cells) {
-      for (const cell of row) {
-        if (cell?.cell) {
-          this.dispatch("CLEAR_CELL", cell.position);
-        }
-      }
-    }
+    this.dispatch("CLEAR_CELLS", {
+      sheetId: this.sheetId,
+      target: this.zones,
+    });
     this.dispatch("CLEAR_FORMATTING", {
       sheetId: this.sheetId,
       target: this.zones,
@@ -352,12 +364,7 @@ export class ClipboardCellsState extends ClipboardCellsAbstractState {
           continue;
         }
         const position = { col: col + c, row: row + r, sheetId: sheetId };
-        // TODO: refactor this part. the "Paste merge" action is also executed with
-        // MOVE_RANGES in pasteFromCut. Adding a condition on the operation type here
-        // is not appropriate
-        if (this.operation !== "CUT") {
-          this.pasteMergeIfExist(origin.position, position);
-        }
+        this.pasteMergeIfExist(origin.position, position, this.operation);
         this.pasteCell(origin, position, this.operation, clipboardOptions);
         if (shouldPasteCF) {
           this.pasteCf(origin.position, position);
@@ -382,9 +389,7 @@ export class ClipboardCellsState extends ClipboardCellsAbstractState {
     const targetCell = this.getters.getEvaluatedCell(target);
 
     if (clipboardOption?.pasteOption === "onlyValue") {
-      const locale = this.getters.getLocale();
-      const content = formatValue(origin.evaluatedCell.value, { locale });
-      this.dispatch("UPDATE_CELL", { ...target, content });
+      this.dispatch("UPDATE_CELL", { ...target, content: origin.evaluatedCell.value.toString() });
       return;
     }
 
@@ -396,7 +401,11 @@ export class ClipboardCellsState extends ClipboardCellsAbstractState {
       left: targetBorders?.left || originBorders?.left,
       right: targetBorders?.right || originBorders?.right,
     };
-    this.dispatch("SET_BORDER", { sheetId, col, row, border });
+    const borderKey = JSON.stringify(border);
+    if (!this.queuedBordersToAdd[borderKey]) {
+      this.queuedBordersToAdd[borderKey] = [];
+    }
+    this.queuedBordersToAdd[borderKey].push(positionToZone(target));
 
     if (clipboardOption?.pasteOption === "onlyFormat") {
       this.dispatch("UPDATE_CELL", {
@@ -432,7 +441,11 @@ export class ClipboardCellsState extends ClipboardCellsAbstractState {
    * If the origin position given is the top left of a merge, merge the target
    * position.
    */
-  private pasteMergeIfExist(origin: CellPosition, target: CellPosition) {
+  private pasteMergeIfExist(
+    origin: CellPosition,
+    target: CellPosition,
+    operation: ClipboardOperation
+  ) {
     let { sheetId, col, row } = origin;
 
     const { col: mainCellColOrigin, row: mainCellRowOrigin } =
@@ -441,6 +454,9 @@ export class ClipboardCellsState extends ClipboardCellsAbstractState {
       const merge = this.getters.getMerge(origin);
       if (!merge) {
         return;
+      }
+      if (operation === "CUT") {
+        this.dispatch("REMOVE_MERGE", { sheetId, target: [merge] });
       }
       ({ sheetId, col, row } = target);
       this.dispatch("ADD_MERGE", {
@@ -563,7 +579,8 @@ export class ClipboardCellsState extends ClipboardCellsAbstractState {
   }
 
   private pasteCf(origin: CellPosition, target: CellPosition) {
-    const xc = toXC(target.col, target.row);
+    const zone = positionToZone(target);
+    const originZone = positionToZone(origin);
     for (let rule of this.getters.getConditionalFormats(origin.sheetId)) {
       for (let range of rule.ranges) {
         if (
@@ -574,17 +591,17 @@ export class ClipboardCellsState extends ClipboardCellsAbstractState {
           )
         ) {
           const cf = rule;
-          const toRemoveRange: string[] = [];
+          const toRemoveRange: Zone[] = [];
           if (this.operation === "CUT") {
             //remove from current rule
-            toRemoveRange.push(toXC(origin.col, origin.row));
+            toRemoveRange.push(originZone);
           }
           if (origin.sheetId === target.sheetId) {
-            this.adaptCFRules(origin.sheetId, cf, [xc], toRemoveRange);
+            this.adaptCFRules(origin.sheetId, cf, [zone], toRemoveRange);
           } else {
             this.adaptCFRules(origin.sheetId, cf, [], toRemoveRange);
             const cfToCopyTo = this.getCFToCopyTo(target.sheetId, cf);
-            this.adaptCFRules(target.sheetId, cfToCopyTo, [xc], []);
+            this.adaptCFRules(target.sheetId, cfToCopyTo, [zone], []);
           }
         }
       }
@@ -594,52 +611,58 @@ export class ClipboardCellsState extends ClipboardCellsAbstractState {
   /**
    * Add or remove cells to a given conditional formatting rule.
    */
-  private adaptCFRules(sheetId: UID, cf: ConditionalFormat, toAdd: string[], toRemove: string[]) {
-    const newRangesXC = this.getters.getAdaptedCfRanges(sheetId, cf, toAdd, toRemove);
-    if (!newRangesXC) {
-      return;
+  private adaptCFRules(sheetId: UID, cf: ConditionalFormat, toAdd: Zone[], toRemove: Zone[]) {
+    if (!this.queuedCFChanges[sheetId]) {
+      this.queuedCFChanges[sheetId] = [];
     }
-    if (newRangesXC.length === 0) {
-      this.dispatch("REMOVE_CONDITIONAL_FORMAT", { id: cf.id, sheetId });
-      return;
+    const queuedChange = this.queuedCFChanges[sheetId].find((queued) => queued.cf.id === cf.id);
+    if (!queuedChange) {
+      this.queuedCFChanges[sheetId].push({ toAdd, toRemove, cf });
+    } else {
+      queuedChange.toAdd.push(...toAdd);
+      queuedChange.toRemove.push(...toRemove);
     }
-    this.dispatch("ADD_CONDITIONAL_FORMAT", {
-      cf: {
-        id: cf.id,
-        rule: cf.rule,
-        stopIfTrue: cf.stopIfTrue,
-      },
-      ranges: newRangesXC.map((xc) => this.getters.getRangeDataFromXc(sheetId, xc)),
-      sheetId,
-    });
   }
 
   private getCFToCopyTo(targetSheetId: UID, originCF: ConditionalFormat): ConditionalFormat {
-    const cfInTarget = this.getters
+    let targetCF = this.getters
       .getConditionalFormats(targetSheetId)
       .find((cf) => cf.stopIfTrue === originCF.stopIfTrue && deepEquals(cf.rule, originCF.rule));
 
-    return cfInTarget ? cfInTarget : { ...originCF, id: this.uuidGenerator.uuidv4(), ranges: [] };
+    const queuedCfs = this.queuedCFChanges[targetSheetId];
+    if (!targetCF && queuedCfs) {
+      targetCF = queuedCfs.find(
+        (queued) =>
+          queued.cf.stopIfTrue === originCF.stopIfTrue && deepEquals(queued.cf.rule, originCF.rule)
+      )?.cf;
+    }
+
+    return targetCF ? targetCF : { ...originCF, id: this.uuidGenerator.smallUuid(), ranges: [] };
   }
 
   private pasteDataValidation(origin: CellPosition, target: CellPosition) {
     const rule = this.getters.getValidationRuleForCell(origin);
+    const originZone = positionToZone(origin);
     if (!rule) {
       return;
     }
-    const xc = toXC(target.col, target.row);
+    const zone = positionToZone(target);
     for (const range of rule.ranges) {
       if (isInside(origin.col, origin.row, range.zone)) {
-        const toRemoveRange: string[] = [];
+        const toRemoveRange: Zone[] = [];
         if (this.operation === "CUT") {
-          toRemoveRange.push(toXC(origin.col, origin.row));
+          toRemoveRange.push(originZone);
         }
         if (origin.sheetId === target.sheetId) {
-          this.adaptDataValidationRule(origin.sheetId, rule, [xc], toRemoveRange);
+          const copyToRule = this.getDataValidationRuleToCopyTo(target.sheetId, rule);
+          this.adaptDataValidationRule(origin.sheetId, copyToRule, [zone], toRemoveRange);
         } else {
-          this.adaptDataValidationRule(origin.sheetId, rule, [], toRemoveRange);
-          let copyToRule = this.getDataValidationRuleToCopyTo(target.sheetId, rule);
-          this.adaptDataValidationRule(target.sheetId, copyToRule, [xc], []);
+          const originRule = this.getters.getValidationRuleForCell(origin);
+          if (originRule) {
+            this.adaptDataValidationRule(origin.sheetId, originRule, [], toRemoveRange);
+          }
+          const copyToRule = this.getDataValidationRuleToCopyTo(target.sheetId, rule);
+          this.adaptDataValidationRule(target.sheetId, copyToRule, [zone], []);
         }
       }
     }
@@ -649,7 +672,7 @@ export class ClipboardCellsState extends ClipboardCellsAbstractState {
     targetSheetId: UID,
     originRule: DataValidationRule
   ): DataValidationRule {
-    const ruleInTargetSheet = this.getters
+    let targetRule = this.getters
       .getDataValidationRules(targetSheetId)
       .find(
         (rule) =>
@@ -657,9 +680,16 @@ export class ClipboardCellsState extends ClipboardCellsAbstractState {
           originRule.isBlocking === rule.isBlocking
       );
 
-    return ruleInTargetSheet
-      ? ruleInTargetSheet
-      : { ...originRule, id: this.uuidGenerator.uuidv4(), ranges: [] };
+    const queuedRules = this.queuedDVChanges[targetSheetId];
+    if (!targetRule && queuedRules) {
+      targetRule = queuedRules.find(
+        (queued) =>
+          deepEquals(originRule.criterion, queued.rule.criterion) &&
+          originRule.isBlocking === queued.rule.isBlocking
+      )?.rule;
+    }
+
+    return targetRule || { ...originRule, id: this.uuidGenerator.smallUuid(), ranges: [] };
   }
 
   /**
@@ -668,19 +698,69 @@ export class ClipboardCellsState extends ClipboardCellsAbstractState {
   private adaptDataValidationRule(
     sheetId: UID,
     rule: DataValidationRule,
-    toAdd: string[],
-    toRemove: string[]
+    toAdd: Zone[],
+    toRemove: Zone[]
   ) {
-    const dvRangesXcs = rule.ranges.map((range) => this.getters.getRangeString(range, sheetId));
-    const newRangesXC = recomputeZones([...dvRangesXcs, ...toAdd], toRemove);
-    if (newRangesXC.length === 0) {
-      this.dispatch("REMOVE_DATA_VALIDATION_RULE", { sheetId, id: rule.id });
-      return;
+    if (!this.queuedDVChanges[sheetId]) {
+      this.queuedDVChanges[sheetId] = [];
     }
-    this.dispatch("ADD_DATA_VALIDATION_RULE", {
-      rule,
-      ranges: newRangesXC.map((xc) => this.getters.getRangeDataFromXc(sheetId, xc)),
-      sheetId,
-    });
+    const queuedChange = this.queuedDVChanges[sheetId].find((queued) => queued.rule.id === rule.id);
+    if (!queuedChange) {
+      this.queuedDVChanges[sheetId].push({ toAdd, toRemove, rule: deepCopy(rule) });
+    } else {
+      queuedChange.toAdd.push(...toAdd);
+      queuedChange.toRemove.push(...toRemove);
+    }
+  }
+
+  private executeQueuedChanges(pasteSheetTarget: UID) {
+    for (const sheetId in this.queuedCFChanges) {
+      for (const { toAdd, toRemove, cf } of this.queuedCFChanges[sheetId]) {
+        const newRangesXc = this.getters.getAdaptedCfRanges(sheetId, cf, toAdd, toRemove);
+        if (!newRangesXc) {
+          continue;
+        }
+        if (newRangesXc.length === 0) {
+          this.dispatch("REMOVE_CONDITIONAL_FORMAT", { id: cf.id, sheetId });
+          continue;
+        }
+        this.dispatch("ADD_CONDITIONAL_FORMAT", {
+          cf: {
+            id: cf.id,
+            rule: cf.rule,
+            stopIfTrue: cf.stopIfTrue,
+          },
+          ranges: newRangesXc.map((zone) => this.getters.getRangeDataFromZone(sheetId, zone)),
+          sheetId,
+        });
+      }
+    }
+
+    for (const sheetId in this.queuedDVChanges) {
+      for (const { toAdd, toRemove, rule: dv } of this.queuedDVChanges[sheetId]) {
+        // Remove the zones first in case the same position is in toAdd and toRemove
+        const dvZones = dv.ranges.map((range) => range.zone);
+        const withRemovedZones = futureRecomputeZones(dvZones, toRemove);
+        const newDvZones = futureRecomputeZones([...withRemovedZones, ...toAdd], []);
+
+        if (newDvZones.length === 0) {
+          this.dispatch("REMOVE_DATA_VALIDATION_RULE", { sheetId, id: dv.id });
+          continue;
+        }
+        this.dispatch("ADD_DATA_VALIDATION_RULE", {
+          rule: { id: dv.id, criterion: dv.criterion, isBlocking: dv.isBlocking },
+          ranges: newDvZones.map((zone) => this.getters.getRangeDataFromZone(sheetId, zone)),
+          sheetId,
+        });
+      }
+    }
+
+    for (const borderKey in this.queuedBordersToAdd) {
+      const zones = this.queuedBordersToAdd[borderKey];
+      const border = JSON.parse(borderKey) as Border;
+      const target = futureRecomputeZones(zones, []);
+      this.dispatch("SET_BORDERS_ON_TARGET", { sheetId: pasteSheetTarget, target, border });
+    }
+    this.queuedBordersToAdd = {};
   }
 }

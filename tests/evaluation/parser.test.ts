@@ -1,5 +1,5 @@
 import { astToFormula, parse } from "../../src";
-import { InvalidReferenceError } from "../../src/types/errors";
+import { CellErrorType } from "../../src/types/errors";
 
 describe("parser", () => {
   test("can parse a function call with no argument", () => {
@@ -130,6 +130,9 @@ describe("parser", () => {
     expect(parse("1.5")).toEqual({ type: "NUMBER", value: 1.5 });
     expect(parse("1.")).toEqual({ type: "NUMBER", value: 1 });
     expect(parse(".5")).toEqual({ type: "NUMBER", value: 0.5 });
+    expect(parse("1e3")).toEqual({ type: "NUMBER", value: 1e3 });
+    expect(parse("1e+3")).toEqual({ type: "NUMBER", value: 1e3 });
+    expect(parse("1e-3")).toEqual({ type: "NUMBER", value: 1e-3 });
   });
 
   test("can parse string without ending double quotes", () => {
@@ -168,7 +171,14 @@ describe("parser", () => {
   });
 
   test("Can parse invalid references", () => {
-    expect(() => parse("#REF")).toThrowError(new InvalidReferenceError().message);
+    expect(parse("#REF")).toEqual({
+      type: "REFERENCE",
+      value: CellErrorType.InvalidReference,
+    });
+  });
+
+  test("Cannot parse empty string", () => {
+    expect(() => parse("")).toThrowError("Invalid expression");
   });
 
   test("AND", () => {
@@ -251,6 +261,7 @@ describe("Converting AST to string", () => {
     expect(astToFormula(parse("'Sheet 1'!A10"))).toBe("'Sheet 1'!A10");
     expect(astToFormula(parse("'Sheet 1'!A10:A11"))).toBe("'Sheet 1'!A10:A11");
     expect(astToFormula(parse("SUM(A1,A2)"))).toBe("SUM(A1,A2)");
+    expect(astToFormula(parse("'Sheet 1'!A:B"))).toBe("'Sheet 1'!A:B");
   });
   test("Convert strings", () => {
     expect(astToFormula(parse('"R"'))).toBe('"R"');

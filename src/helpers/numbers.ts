@@ -14,13 +14,13 @@ export const getFormulaNumberRegex = memoize(function getFormulaNumberRegex(
 ) {
   decimalSeparator = escapeRegExp(decimalSeparator);
   return new RegExp(
-    `(^-?\\d+(${decimalSeparator}?\\d*(e\\d+)?)?|^-?${decimalSeparator}\\d+)(?!\\w|!)`
+    `(^-?\\d+(${decimalSeparator}?\\d*(e(\\+|-)?\\d+)?)?|^-?${decimalSeparator}\\d+)(?!\\w|!)`
   );
 });
 
 const getNumberRegex = memoize(function getNumberRegex(locale: Locale) {
   const decimalSeparator = escapeRegExp(locale.decimalSeparator);
-  const thousandsSeparator = escapeRegExp(locale.thousandsSeparator);
+  const thousandsSeparator = escapeRegExp(locale.thousandsSeparator || "");
 
   const pIntegerAndDecimals = `(\\d+(${thousandsSeparator}\\d{3,})*(${decimalSeparator}\\d*)?)`; // pattern that match integer number with or without decimal digits
   const pOnlyDecimals = `(${decimalSeparator}\\d+)`; // pattern that match only expression with decimal digits
@@ -54,7 +54,7 @@ export function isNumber(value: string | undefined, locale: Locale): boolean {
 }
 
 const getInvaluableSymbolsRegexp = memoize(function getInvaluableSymbolsRegexp(locale: Locale) {
-  return new RegExp(`[\$€${escapeRegExp(locale.thousandsSeparator)}]`, "g");
+  return new RegExp(`[\$€${escapeRegExp(locale.thousandsSeparator || "")}]`, "g");
 });
 /**
  * Convert a string into a number. It assumes that the string actually represents
@@ -64,11 +64,12 @@ const getInvaluableSymbolsRegexp = memoize(function getInvaluableSymbolsRegexp(l
  * number from the point of view of the isNumber function.
  */
 export function parseNumber(str: string, locale: Locale): number {
+  // remove invaluable characters
+  str = str.replace(getInvaluableSymbolsRegexp(locale), "");
+
   if (locale.decimalSeparator !== ".") {
     str = str.replace(locale.decimalSeparator, ".");
   }
-  // remove invaluable characters
-  str = str.replace(getInvaluableSymbolsRegexp(locale), "");
   let n = Number(str);
   if (isNaN(n) && str.includes("%")) {
     n = Number(str.split("%")[0]);

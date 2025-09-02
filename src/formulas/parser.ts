@@ -2,8 +2,9 @@ import { DEFAULT_ERROR_MESSAGE } from "../constants";
 import { parseNumber, removeStringQuotes } from "../helpers/index";
 import { _t } from "../translation";
 import { DEFAULT_LOCALE } from "../types";
-import { BadExpressionError, InvalidReferenceError } from "../types/errors";
-import { Token, tokenize } from "./tokenizer";
+import { BadExpressionError, CellErrorType } from "../types/errors";
+import { rangeTokenize } from "./range_tokenizer";
+import { Token } from "./tokenizer";
 
 const functionRegex = /[a-zA-Z0-9\_]+(\.[a-zA-Z0-9\_]+)*/;
 
@@ -112,7 +113,11 @@ function parseOperand(tokens: Token[]): AST {
     case "STRING":
       return { type: "STRING", value: removeStringQuotes(current.value) };
     case "INVALID_REFERENCE":
-      throw new InvalidReferenceError();
+      return {
+        type: "REFERENCE",
+        value: CellErrorType.InvalidReference,
+      };
+
     case "REFERENCE":
       if (tokens[0]?.value === ":" && tokens[1]?.type === "REFERENCE") {
         tokens.shift();
@@ -224,12 +229,12 @@ function parseExpression(tokens: Token[], parent_priority: number = 0): AST {
  * Parse an expression (as a string) into an AST.
  */
 export function parse(str: string): AST {
-  return parseTokens(tokenize(str));
+  return parseTokens(rangeTokenize(str));
 }
 
 export function parseTokens(tokens: Token[]): AST {
   tokens = tokens.filter((x) => x.type !== "SPACE");
-  if (tokens[0].value === "=") {
+  if (tokens[0]?.value === "=") {
     tokens.splice(0, 1);
   }
   const result = parseExpression(tokens);

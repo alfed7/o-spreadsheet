@@ -1,4 +1,4 @@
-import { SELECTION_BORDER_COLOR } from "../../constants";
+import { DEFAULT_CELL_WIDTH, SELECTION_BORDER_COLOR } from "../../constants";
 import { SUM } from "../../functions/module_math";
 import { AVERAGE, COUNT, COUNTA, MAX, MIN } from "../../functions/module_statistical";
 import { ClipboardCellsState } from "../../helpers/clipboard/clipboard_cells_state";
@@ -31,6 +31,7 @@ import {
   LocalCommand,
   Locale,
   MoveColumnsRowsCommand,
+  Pixel,
   RemoveColumnsRowsCommand,
   Selection,
   Sheet,
@@ -279,25 +280,7 @@ export class GridSelectionPlugin extends UIPlugin {
             gridSelection: deepCopy(gridSelection),
           };
         }
-        if (!this.getters.tryGetSheet(this.getters.getActiveSheetId())) {
-          const currentSheetIds = this.getters.getVisibleSheetIds();
-          this.activeSheet = this.getters.getSheet(currentSheetIds[0]);
-          if (this.activeSheet.id in this.sheetsData) {
-            const { anchor } = this.clipSelection(
-              this.activeSheet.id,
-              this.sheetsData[this.activeSheet.id].gridSelection
-            );
-            this.selectCell(anchor.cell.col, anchor.cell.row);
-          } else {
-            this.selectCell(0, 0);
-          }
-          const { col, row } = this.gridSelection.anchor.cell;
-          this.moveClient({
-            sheetId: this.getters.getActiveSheetId(),
-            col,
-            row,
-          });
-        }
+        this.fallbackToVisibleSheet();
         const sheetId = this.getters.getActiveSheetId();
         this.gridSelection.zones = this.gridSelection.zones.map((z) =>
           this.getters.expandZone(sheetId, z)
@@ -310,6 +293,10 @@ export class GridSelectionPlugin extends UIPlugin {
         this.selectedFigureId = null;
         break;
     }
+  }
+
+  finalize(): void {
+    this.fallbackToVisibleSheet();
     /** Any change to the selection has to be  reflected in the selection processor. */
     this.selection.resetDefaultAnchor(this, deepCopy(this.gridSelection.anchor));
   }
@@ -544,6 +531,8 @@ export class GridSelectionPlugin extends UIPlugin {
       });
       this.selectCell(col, row);
     }
+    const { col, row } = this.gridSelection.anchor.cell;
+    this.moveClient({ sheetId: this.activeSheet.id, col, row });
   }
 
   /**
@@ -661,7 +650,16 @@ export class GridSelectionPlugin extends UIPlugin {
     const isBasedBefore = cmd.base < start;
     const deltaCol = isBasedBefore && isCol ? thickness : 0;
     const deltaRow = isBasedBefore && !isCol ? thickness : 0;
-
+    const toRemove = isBasedBefore ? cmd.elements.map((el) => el + thickness) : cmd.elements;
+    const originalSize = Object.fromEntries(
+      toRemove.map((element): [HeaderIndex, Pixel | null] => {
+        const size = isCol
+          ? this.getters.getColSize(cmd.sheetId, element)
+          : this.getters.getUserRowSize(cmd.sheetId, element);
+        const isDefaultCol = isCol && size === DEFAULT_CELL_WIDTH;
+        return [element, isDefaultCol || size === undefined ? null : size];
+      })
+    );
     const target = [
       {
         left: isCol ? start + deltaCol : 0,
@@ -688,14 +686,12 @@ export class GridSelectionPlugin extends UIPlugin {
     ];
     state.paste(pasteTarget, { selectTarget: true });
 
-    const toRemove = isBasedBefore ? cmd.elements.map((el) => el + thickness) : cmd.elements;
-    let currentIndex = cmd.base;
+    let currentIndex = isBasedBefore ? cmd.base : cmd.base + 1;
     for (const element of toRemove) {
-      const size = this.getters.getHeaderSize(cmd.sheetId, cmd.dimension, element);
       this.dispatch("RESIZE_COLUMNS_ROWS", {
         dimension: cmd.dimension,
         sheetId: cmd.sheetId,
-        size,
+        size: originalSize[element],
         elements: [currentIndex],
       });
       currentIndex += 1;
@@ -729,6 +725,28 @@ export class GridSelectionPlugin extends UIPlugin {
       return CommandResult.InvalidHeaderIndex;
     }
     return CommandResult.Success;
+  }
+
+  private fallbackToVisibleSheet() {
+    if (!this.getters.tryGetSheet(this.getters.getActiveSheetId())) {
+      const currentSheetIds = this.getters.getVisibleSheetIds();
+      this.activeSheet = this.getters.getSheet(currentSheetIds[0]);
+      if (this.activeSheet.id in this.sheetsData) {
+        const { anchor } = this.clipSelection(
+          this.activeSheet.id,
+          this.sheetsData[this.activeSheet.id].gridSelection
+        );
+        this.selectCell(anchor.cell.col, anchor.cell.row);
+      } else {
+        this.selectCell(0, 0);
+      }
+      const { col, row } = this.gridSelection.anchor.cell;
+      this.moveClient({
+        sheetId: this.getters.getActiveSheetId(),
+        col,
+        row,
+      });
+    }
   }
 
   //-------------------------------------------

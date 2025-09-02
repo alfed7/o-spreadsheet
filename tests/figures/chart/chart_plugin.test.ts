@@ -29,7 +29,7 @@ import {
   updateChart,
   updateLocale,
 } from "../../test_helpers/commands_helpers";
-import { getPlugin, mockChart, nextTick, target } from "../../test_helpers/helpers";
+import { getPlugin, mockChart, nextTick, setGrid, target } from "../../test_helpers/helpers";
 
 import { ChartTerms } from "../../../src/components/translations_terms";
 import { FIGURE_ID_SPLITTER, MAX_CHAR_LABEL } from "../../../src/constants";
@@ -37,8 +37,6 @@ import { BarChart } from "../../../src/helpers/figures/charts";
 import { ChartPlugin } from "../../../src/plugins/core";
 import { FR_LOCALE } from "../../test_helpers/constants";
 import { getCellContent } from "../../test_helpers/getters_helpers";
-
-jest.mock("../../../src/helpers/uuid", () => require("../../__mocks__/uuid"));
 
 let model: Model;
 
@@ -684,6 +682,28 @@ describe("datasource tests", function () {
     expect(result).toBeCancelledBecause(CommandResult.ChartDoesNotExist);
   });
 
+  test("reject updates that target a figure that is not a chart", () => {
+    model.dispatch("CREATE_FIGURE", {
+      sheetId: model.getters.getActiveSheetId(),
+      figure: { id: "2", x: 0, y: 0, width: 100, height: 100, tag: "not a chart" },
+    });
+
+    const result = model.dispatch("UPDATE_CHART", {
+      definition: {
+        dataSets: [],
+        dataSetsHaveTitle: false,
+        verticalAxisPosition: "left",
+        stacked: false,
+        legendPosition: "bottom",
+        title: "test",
+        type: "bar",
+      },
+      sheetId: model.getters.getActiveSheetId(),
+      id: "2",
+    });
+    expect(result).toBeCancelledBecause(CommandResult.ChartDoesNotExist);
+  });
+
   test("chart is not selected after creation and update", () => {
     const chartId = "1234";
     createChart(
@@ -813,12 +833,14 @@ describe("datasource tests", function () {
     model.dispatch("DUPLICATE_SHEET", {
       sheetId: "1",
       sheetIdTo: "SheetNoFigure",
+      sheetNameTo: "Copy of Sheet1",
     });
     activateSheet(model, "SheetNoFigure");
     expect(model.getters.getVisibleFigures()).toEqual([]);
     model.dispatch("DUPLICATE_SHEET", {
       sheetId: "2",
       sheetIdTo: "SheetWithFigure",
+      sheetNameTo: "Copy of Sheet1",
     });
     activateSheet(model, "2");
     const { x, y, height, width, tag } = model.getters.getVisibleFigures()[0];
@@ -896,6 +918,7 @@ describe("datasource tests", function () {
     model.dispatch("DUPLICATE_SHEET", {
       sheetIdTo: secondSheetId,
       sheetId: firstSheetId,
+      sheetNameTo: "Copy of Sheet1",
     });
 
     expect(model.getters.getFigures(secondSheetId)).toHaveLength(1);
@@ -935,12 +958,14 @@ describe("datasource tests", function () {
     model.dispatch("DUPLICATE_SHEET", {
       sheetId: firstSheetId,
       sheetIdTo: secondSheetId,
+      sheetNameTo: "Copy of Sheet1",
     });
 
     const newModel = new Model(model.exportData());
     newModel.dispatch("DUPLICATE_SHEET", {
       sheetId: secondSheetId,
       sheetIdTo: thirdSheetId,
+      sheetNameTo: "Copy of Sheet1 2",
     });
 
     const figuresSh1 = newModel.getters.getFigures(firstSheetId);
@@ -989,6 +1014,7 @@ describe("datasource tests", function () {
     model.dispatch("DUPLICATE_SHEET", {
       sheetIdTo: thirdSheetId,
       sheetId: firstSheetId,
+      sheetNameTo: "Copy of Sheet1",
     });
     const duplicatedFigure = model.getters.getFigures(thirdSheetId)[0];
     const duplicatedChartDefinition = model.getters.getChartDefinition(duplicatedFigure.id);
@@ -2004,6 +2030,53 @@ describe("Linear/Time charts", () => {
     expect(chart.data!.datasets![0].data![0]).toEqual({ y: 10, x: formattedValue });
   });
 
+  test("date chart: rows datasets/labels are supported", () => {
+    setGrid(model, { A1: "2", B1: "3", A2: "1", B2: "10" });
+    setFormat(model, "mm/dd/yyyy", target("B1"));
+    createChart(
+      model,
+      {
+        type: "line",
+        dataSets: ["A2:B2"],
+        labelRange: "A1:B1",
+        labelsAsText: false,
+        dataSetsHaveTitle: false,
+      },
+      chartId
+    );
+
+    const chart = (model.getters.getChartRuntime(chartId) as LineChartRuntime).chartJsConfig;
+    expect(chart.data!.datasets![0].data).toEqual([
+      { y: 1, x: "2" },
+      { y: 10, x: "01/02/1900" },
+    ]);
+    expect(chart.options?.scales?.x?.type).toEqual("time");
+  });
+
+  test.each(["bar", "line", "pie"] as const)("long labels are truncated in %s chart", (type) => {
+    setCellContent(model, "A2", "This is a very long label that should be truncated");
+    setCellContent(model, "B1", "First dataset");
+    setCellContent(model, "B2", "10");
+
+    createChart(
+      model,
+      {
+        type,
+        dataSets: ["B1:B2"],
+        labelRange: "A2",
+        labelsAsText: false,
+        dataSetsHaveTitle: true,
+      },
+      chartId
+    );
+
+    const chart = (model.getters.getChartRuntime(chartId) as BarChartRuntime).chartJsConfig;
+
+    expect(chart.data!.labels![0]).toEqual("This is a very long …");
+    expect((chart.data!.labels![0] as string).length).toBe(MAX_CHAR_LABEL + 1); // +1 for the ellipsis
+    expect(chart.data!.datasets![0].data![0]).toEqual(10);
+  });
+
   test("linear chart: label 0 isn't set to undefined", () => {
     setCellContent(model, "B2", "0");
     setCellContent(model, "B3", "1");
@@ -2044,6 +2117,25 @@ describe("Linear/Time charts", () => {
     const chart = (model.getters.getChartRuntime(chartId) as LineChartRuntime).chartJsConfig;
     expect(chart.data!.labels![1]).toEqual("");
     expect(chart.data!.datasets![0].data![1]).toEqual({ y: 11, x: undefined });
+  });
+
+  test("can create linear chart with non-number header in the label range", () => {
+    setGrid(model, { A1: "x", A2: "1", B1: "y", B2: "10" });
+    createChart(
+      model,
+      {
+        type: "line",
+        dataSets: ["B1:B2"],
+        labelRange: "A1:A2",
+        labelsAsText: false,
+        dataSetsHaveTitle: true,
+      },
+      chartId
+    );
+    const chart = (model.getters.getChartRuntime(chartId) as LineChartRuntime).chartJsConfig;
+    expect(chart.options?.scales?.x?.type).toEqual("linear");
+    expect(chart.data!.labels).toEqual(["1"]);
+    expect(chart.data!.datasets![0].data).toEqual([{ y: 10, x: "1" }]);
   });
 
   test("snapshot test of chartJS configuration for linear chart", () => {
@@ -2095,6 +2187,27 @@ describe("Linear/Time charts", () => {
       chartId
     );
     expect(model.getters.getChartRuntime(chartId)).toMatchSnapshot();
+  });
+
+  test("Displays date labels correctly when 'Use row X as labels' is checked", () => {
+    setCellContent(model, "A2", "2024-01-01");
+    setCellContent(model, "B1", "first dataset");
+    setCellContent(model, "B2", "10");
+
+    createChart(
+      model,
+      {
+        type: "line",
+        dataSets: ["B1:B2"],
+        labelRange: "A1:A2",
+        labelsAsText: false,
+        dataSetsHaveTitle: true,
+      },
+      chartId
+    );
+
+    const chart = (model.getters.getChartRuntime(chartId) as LineChartRuntime).chartJsConfig;
+    expect(chart.data!.labels).toEqual(["2024-01-01"]);
   });
 });
 
@@ -2174,6 +2287,30 @@ describe("Cumulative Data line chart", () => {
 
     expect(updatedChartData).toEqual(expectedCumulativeData);
   });
+
+  test("Cumulative data with linear chart", () => {
+    setCellContent(model, "A1", "1");
+    setCellContent(model, "A2", "2");
+    setCellContent(model, "B1", "10");
+    setCellContent(model, "B2", "20");
+    createChart(
+      model,
+      {
+        dataSets: ["B1:B2"],
+        dataSetsHaveTitle: false,
+        labelRange: "A1:A2",
+        type: "line",
+        cumulative: true,
+      },
+      "chartId"
+    );
+
+    const runtime = model.getters.getChartRuntime("chartId") as LineChartRuntime;
+    expect(runtime.chartJsConfig.data!.datasets![0].data).toEqual([
+      { x: "1", y: 10 },
+      { x: "2", y: 30 },
+    ]);
+  });
 });
 
 test("creating chart with single dataset should have legend position set as none, followed by changing it to top", async () => {
@@ -2219,7 +2356,11 @@ test("Duplicating a sheet dispatches `CREATE_CHART` for each chart", () => {
   // @ts-ignore
   const spyDispatch = jest.spyOn(chartPlugin, "dispatch");
   const sheetId = model.getters.getActiveSheetId();
-  model.dispatch("DUPLICATE_SHEET", { sheetId, sheetIdTo: "copyOf" + sheetId });
+  model.dispatch("DUPLICATE_SHEET", {
+    sheetId,
+    sheetIdTo: "copyOf" + sheetId,
+    sheetNameTo: "Copy of Sheet1",
+  });
   // first chart duplicated
   expect(spyDispatch).toHaveBeenNthCalledWith(1, "CREATE_CHART", expect.any(Object));
   expect(spyDispatch).toHaveBeenNthCalledWith(2, "CREATE_FIGURE", expect.any(Object));

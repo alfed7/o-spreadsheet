@@ -4,6 +4,7 @@ import {
   AddColumnsRowsCommand,
   AddMergeCommand,
   ClearCellCommand,
+  ClearCellsCommand,
   ClearFormattingCommand,
   CoreCommand,
   CreateSheetCommand,
@@ -116,6 +117,7 @@ describe("Inverses commands", () => {
       type: "DUPLICATE_SHEET",
       sheetId: "1",
       sheetIdTo: "2",
+      sheetNameTo: "Copy of Sheet1",
     };
     expect(inverseCommand(duplicateSheet)).toEqual([{ type: "DELETE_SHEET", sheetId: "2" }]);
   });
@@ -249,6 +251,11 @@ describe("Inverses commands", () => {
       col: 1,
       row: 1,
     };
+    const clearCells: ClearCellsCommand = {
+      type: "CLEAR_CELLS",
+      sheetId: "1",
+      target: [toZone("A1")],
+    };
     const deleteContent: DeleteContentCommand = {
       type: "DELETE_CONTENT",
       sheetId: "1",
@@ -301,6 +308,7 @@ describe("Inverses commands", () => {
       updateCell,
       updateCellPosition,
       clearCell,
+      clearCells,
       deleteContent,
       resizeColumns,
       resizeRows,

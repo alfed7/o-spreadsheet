@@ -1,5 +1,5 @@
-import { DEFAULT_FONT_SIZE } from "../../constants";
-import { deepEquals, splitReference, toUnboundedZone } from "../../helpers";
+import { DEFAULT_FONT_SIZE, NEWLINE } from "../../constants";
+import { deepEquals, isSheetNameEqual, splitReference, toUnboundedZone } from "../../helpers";
 import {
   ConditionalFormattingOperatorValues,
   ExcelCellData,
@@ -53,6 +53,19 @@ export function convertOperator(operator: ConditionalFormattingOperatorValues): 
 //        WORKSHEET HELPERS
 // -------------------------------------
 
+export function getCellType(value: number | string | boolean | null): string | undefined {
+  switch (typeof value) {
+    case "boolean":
+      return "b";
+    case "string":
+      return "str";
+    case "number":
+      return "n";
+    default:
+      return undefined;
+  }
+}
+
 export function convertHeightToExcel(height: number): number {
   return Math.round(HEIGHT_FACTOR * height * 100) / 100;
 }
@@ -96,7 +109,7 @@ export function extractStyle(cell: ExcelCellData, data: WorkbookData): Extracted
       vertical: style.verticalAlign
         ? V_ALIGNMENT_EXPORT_CONVERSION_MAP[style.verticalAlign]
         : undefined,
-      wrapText: style.wrapping === "wrap",
+      wrapText: style.wrapping === "wrap" || cell.content?.includes(NEWLINE) ? true : undefined,
     },
   };
 
@@ -236,7 +249,7 @@ export function getRangeSize(
   ({ xc, sheetName } = splitReference(reference));
   let rangeSheetIndex: number;
   if (sheetName) {
-    const index = data.sheets.findIndex((sheet) => sheet.name === sheetName);
+    const index = data.sheets.findIndex((sheet) => isSheetNameEqual(sheet.name, sheetName));
     if (index < 0) {
       throw new Error("Unable to find a sheet with the name " + sheetName);
     }

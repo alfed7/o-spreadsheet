@@ -2,12 +2,15 @@ import { CommandResult } from "../../src";
 import {
   DEFAULT_CELL_HEIGHT,
   DEFAULT_CELL_WIDTH,
+  DEFAULT_REVISION_ID,
+  MESSAGE_VERSION,
   getDefaultSheetViewSize,
 } from "../../src/constants";
 import { isDefined, numberToLetters, range, toXC, toZone, zoneToXc } from "../../src/helpers";
 import { Model } from "../../src/model";
 import { SheetViewPlugin } from "../../src/plugins/ui_stateful/sheetview";
 import { Zone } from "../../src/types";
+import { StateUpdateMessage } from "../../src/types/collaborative/transport_service";
 import {
   activateSheet,
   addColumns,
@@ -51,11 +54,11 @@ function getPanes() {
   const sheetViewPlugin = getPlugin(model, SheetViewPlugin);
   const sheetId = model.getters.getActiveSheetId();
   return Object.fromEntries(
-    Object.entries(sheetViewPlugin.viewports[sheetId]!).filter((entry) => isDefined(entry[1]))
+    Object.entries(sheetViewPlugin["viewports"][sheetId]!).filter((entry) => isDefined(entry[1]))
   );
 }
 
-function getSheetViewBoundaries(model): Zone {
+function getSheetViewBoundaries(model: Model): Zone {
   const visibleCols = model.getters.getSheetViewVisibleCols();
   const left = visibleCols[0];
   const right = visibleCols[visibleCols.length - 1];
@@ -913,18 +916,115 @@ describe("Viewport of Simple sheet", () => {
     });
   });
 
-  test("getVisibleRect with freezed panes returns the actual visible part of a zone", () => {
+  test("getVisibleRect with frozen panes returns the actual visible part of a zone", () => {
     freezeColumns(model, 1);
     freezeRows(model, 1);
     const width = 4.5 * DEFAULT_CELL_WIDTH;
     const height = 5.5 * DEFAULT_CELL_HEIGHT;
     model.dispatch("RESIZE_SHEETVIEW", { gridOffsetX: 0, gridOffsetY: 0, width, height });
-    expect(model.getters.getVisibleRect(model.getters.getActiveMainViewport())).toEqual({
+    const zone = model.getters.getActiveMainViewport();
+    expect(model.getters.getVisibleRect(zone)).toEqual({
       x: DEFAULT_CELL_WIDTH,
       y: DEFAULT_CELL_HEIGHT,
       width: 3.5 * DEFAULT_CELL_WIDTH,
       height: 4.5 * DEFAULT_CELL_HEIGHT,
     });
+    setViewportOffset(model, DEFAULT_CELL_WIDTH, DEFAULT_CELL_HEIGHT);
+    expect(model.getters.getVisibleRect(zone)).toEqual({
+      x: DEFAULT_CELL_WIDTH,
+      y: DEFAULT_CELL_HEIGHT,
+      width: 3 * DEFAULT_CELL_WIDTH,
+      height: 4 * DEFAULT_CELL_HEIGHT,
+    });
+  });
+
+  test("getVisibleRect takes the scroll into account", () => {
+    merge(model, "A1:B2");
+    const zone = toZone("A1:B2");
+    expect(model.getters.getVisibleRect(zone)).toEqual({
+      x: 0,
+      y: 0,
+      width: DEFAULT_CELL_WIDTH * 2,
+      height: DEFAULT_CELL_HEIGHT * 2,
+    });
+    setViewportOffset(model, DEFAULT_CELL_WIDTH, DEFAULT_CELL_HEIGHT);
+    expect(model.getters.getVisibleRect(zone)).toEqual({
+      x: 0,
+      y: 0,
+      width: DEFAULT_CELL_WIDTH,
+      height: DEFAULT_CELL_HEIGHT,
+    });
+  });
+
+  test("getRect returns the full zone dimensions regardless of the viewport size", () => {
+    const width = 4.5 * DEFAULT_CELL_WIDTH;
+    const height = 5.5 * DEFAULT_CELL_HEIGHT;
+    model.dispatch("RESIZE_SHEETVIEW", { gridOffsetX: 0, gridOffsetY: 0, width, height });
+    expect(model.getters.getRect(model.getters.getActiveMainViewport())).toEqual({
+      x: 0,
+      y: 0,
+      width: 5 * DEFAULT_CELL_WIDTH,
+      height: 6 * DEFAULT_CELL_HEIGHT,
+    });
+  });
+
+  test("getRect with frozen panes returns the full part of a zone", () => {
+    freezeColumns(model, 1);
+    freezeRows(model, 1);
+    const width = 4.5 * DEFAULT_CELL_WIDTH;
+    const height = 5.5 * DEFAULT_CELL_HEIGHT;
+    model.dispatch("RESIZE_SHEETVIEW", { gridOffsetX: 0, gridOffsetY: 0, width, height });
+    const zone = model.getters.getActiveMainViewport();
+    expect(model.getters.getRect(zone)).toEqual({
+      x: DEFAULT_CELL_WIDTH,
+      y: DEFAULT_CELL_HEIGHT,
+      width: 4 * DEFAULT_CELL_WIDTH,
+      height: 5 * DEFAULT_CELL_HEIGHT,
+    });
+    setViewportOffset(model, DEFAULT_CELL_WIDTH, DEFAULT_CELL_HEIGHT);
+    expect(model.getters.getRect(zone)).toEqual({
+      x: 0,
+      y: 0,
+      width: 4 * DEFAULT_CELL_WIDTH,
+      height: 5 * DEFAULT_CELL_HEIGHT,
+    });
+  });
+
+  test("getRect takes the scroll into account", () => {
+    merge(model, "A1:B2");
+    const zone = toZone("A1:B2");
+    expect(model.getters.getRect(zone)).toEqual({
+      x: 0,
+      y: 0,
+      width: DEFAULT_CELL_WIDTH * 2,
+      height: DEFAULT_CELL_HEIGHT * 2,
+    });
+    setViewportOffset(model, DEFAULT_CELL_WIDTH, DEFAULT_CELL_HEIGHT);
+    expect(model.getters.getRect(zone)).toEqual({
+      x: -DEFAULT_CELL_WIDTH,
+      y: -DEFAULT_CELL_HEIGHT,
+      width: DEFAULT_CELL_WIDTH * 2,
+      height: DEFAULT_CELL_HEIGHT * 2,
+    });
+  });
+
+  test("Loading a model with initial revisions in sheet that is deleted doesn't crash", () => {
+    const initialMessages: StateUpdateMessage[] = [
+      {
+        type: "REMOTE_REVISION",
+        serverRevisionId: DEFAULT_REVISION_ID,
+        nextRevisionId: "1",
+        version: MESSAGE_VERSION,
+        clientId: "bob",
+        commands: [
+          { type: "CREATE_SHEET", position: 1, sheetId: "newSheetId" },
+          { type: "UPDATE_CELL", sheetId: "newSheetId", col: 0, row: 0, content: "1" },
+          { type: "DELETE_SHEET", sheetId: "newSheetId" },
+        ],
+      },
+    ];
+
+    expect(() => new Model({}, {}, initialMessages)).not.toThrow();
   });
 });
 
@@ -1108,6 +1208,46 @@ describe("Multi Panes viewport", () => {
     updateFilter(model, "A1", ["2808"]);
 
     expect(model.getters.getActiveMainViewport()).toEqual(originalActiveMainViewport);
+  });
+
+  test("Visible Cols and Rows are correctly computed when the sheetview has a 0 width", () => {
+    const model = new Model();
+    model.dispatch("RESIZE_SHEETVIEW", {
+      width: 0,
+      height: 100,
+      gridOffsetX: 0,
+      gridOffsetY: 0,
+    });
+    expect(model.getters.getSheetViewVisibleCols()).toEqual([]);
+    expect(model.getters.getSheetViewVisibleRows()).toEqual([]);
+
+    freezeColumns(model, 2);
+    expect(model.getters.getSheetViewVisibleCols()).toEqual([]);
+    expect(model.getters.getSheetViewVisibleRows()).toEqual([]);
+
+    freezeRows(model, 2);
+    expect(model.getters.getSheetViewVisibleCols()).toEqual([]);
+    expect(model.getters.getSheetViewVisibleRows()).toEqual([]);
+  });
+
+  test("Visible Cols and Rows are correctly computed when the sheetview has a 0 height", () => {
+    const model = new Model();
+    model.dispatch("RESIZE_SHEETVIEW", {
+      width: 100,
+      height: 0,
+      gridOffsetX: 0,
+      gridOffsetY: 0,
+    });
+    expect(model.getters.getSheetViewVisibleCols()).toEqual([]);
+    expect(model.getters.getSheetViewVisibleRows()).toEqual([]);
+
+    freezeColumns(model, 2);
+    expect(model.getters.getSheetViewVisibleCols()).toEqual([]);
+    expect(model.getters.getSheetViewVisibleRows()).toEqual([]);
+
+    freezeRows(model, 2);
+    expect(model.getters.getSheetViewVisibleCols()).toEqual([]);
+    expect(model.getters.getSheetViewVisibleRows()).toEqual([]);
   });
 });
 

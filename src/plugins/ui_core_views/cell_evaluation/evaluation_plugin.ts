@@ -1,7 +1,7 @@
 import { compileTokens } from "../../../formulas/compiler";
 import { Token, isExportableToExcel } from "../../../formulas/index";
-import { getItemId, positions, toXC } from "../../../helpers/index";
-import { CellErrorType, EvaluationError } from "../../../types/errors";
+import { matrixMap } from "../../../functions/helpers";
+import { getItemId, positionToZone, positions, toXC, union } from "../../../helpers/index";
 import {
   CellPosition,
   CellValue,
@@ -16,8 +16,10 @@ import {
   Matrix,
   Range,
   UID,
+  ValueAndFormat,
   Zone,
   invalidateDependenciesCommands,
+  isMatrix,
 } from "../../../types/index";
 import { UIPlugin, UIPluginConfig } from "../../ui_plugin";
 import { CoreViewCommand } from "./../../../types/commands";
@@ -141,6 +143,7 @@ import { Evaluator } from "./evaluator";
 export class EvaluationPlugin extends UIPlugin {
   static getters = [
     "evaluateFormula",
+    "evaluateFormulaResult",
     "getCorrespondingFormulaCell",
     "getRangeFormattedValues",
     "getRangeValues",
@@ -207,11 +210,18 @@ export class EvaluationPlugin extends UIPlugin {
   // ---------------------------------------------------------------------------
 
   evaluateFormula(sheetId: UID, formulaString: string): CellValue | Matrix<CellValue> {
-    try {
-      return this.evaluator.evaluateFormula(sheetId, formulaString);
-    } catch (error) {
-      return error instanceof EvaluationError ? error.errorType : CellErrorType.GenericError;
+    const result = this.evaluateFormulaResult(sheetId, formulaString);
+    if (isMatrix(result)) {
+      return matrixMap(result, (cell) => cell.value);
     }
+    return result.value;
+  }
+
+  evaluateFormulaResult(
+    sheetId: UID,
+    formulaString: string
+  ): ValueAndFormat | Matrix<ValueAndFormat> {
+    return this.evaluator.evaluateFormulaResult(sheetId, formulaString);
   }
 
   /**
@@ -285,6 +295,9 @@ export class EvaluationPlugin extends UIPlugin {
   // ---------------------------------------------------------------------------
 
   exportForExcel(data: ExcelWorkbookData) {
+    for (const sheet of data.sheets) {
+      sheet.formulaSpillRanges = {};
+    }
     for (const position of this.evaluator.getEvaluatedPositions()) {
       const evaluatedCell = this.evaluator.getEvaluatedCell(position);
 
@@ -299,8 +312,9 @@ export class EvaluationPlugin extends UIPlugin {
 
       const formulaCell = this.getCorrespondingFormulaCell(position);
       if (formulaCell) {
+        const cell = this.getters.getCell(position);
         isExported = isExportableToExcel(formulaCell.compiledFormula.tokens);
-        isFormula = isExported;
+        isFormula = isExported && cell?.content === formulaCell.content;
 
         if (!isExported) {
           // If the cell contains a non-exported formula and that is evaluates to
@@ -331,6 +345,18 @@ export class EvaluationPlugin extends UIPlugin {
         content = !isExported ? newContent : exportedCellData.content;
       }
       exportedSheetData.cells[xc] = { ...exportedCellData, value, isFormula, content, format };
+
+      const spillCells = this.getSpreadPositionsOf(position);
+      spillCells.push(position);
+      const spillZones = spillCells.map((cell) => positionToZone(cell));
+      const spillZone = union(...spillZones);
+      const spillZoneXc = this.getters.getRangeString(
+        this.getters.getRangeFromZone(position.sheetId, spillZone),
+        position.sheetId
+      );
+      if (spillZoneXc && spillZoneXc !== "#REF") {
+        exportedSheetData.formulaSpillRanges[xc] = spillZoneXc;
+      }
     }
   }
 

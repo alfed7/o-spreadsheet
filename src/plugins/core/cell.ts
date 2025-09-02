@@ -9,7 +9,7 @@ import {
   getItemId,
   isInside,
   range,
-  replaceSpecialSpaces,
+  replaceNewLines,
   toCartesian,
   toXC,
 } from "../../helpers/index";
@@ -43,7 +43,7 @@ import { CorePlugin } from "../core_plugin";
 
 interface CoreState {
   // this.cells[sheetId][cellId] --> cell|undefined
-  cells: Record<UID, Record<UID, Cell | undefined>>;
+  cells: Record<UID, Record<UID, Cell | undefined> | undefined>;
   nextId: number;
 }
 
@@ -100,6 +100,10 @@ export class CellPlugin extends CorePlugin<CoreState> implements CoreState {
         return this.checkValidations(cmd, this.checkCellOutOfSheet, this.checkUselessUpdateCell);
       case "CLEAR_CELL":
         return this.checkValidations(cmd, this.checkCellOutOfSheet, this.checkUselessClearCell);
+      case "UPDATE_CELL_POSITION":
+        return !cmd.cellId || this.cells[cmd.sheetId]?.[cmd.cellId]
+          ? CommandResult.Success
+          : CommandResult.InvalidCellId;
       default:
         return CommandResult.Success;
     }
@@ -139,6 +143,12 @@ export class CellPlugin extends CorePlugin<CoreState> implements CoreState {
           format: "",
         });
         break;
+      case "CLEAR_CELLS":
+        this.clearCells(cmd.sheetId, cmd.target);
+        break;
+      case "DELETE_SHEET": {
+        this.history.update("cells", cmd.sheetId, undefined);
+      }
     }
   }
 
@@ -172,6 +182,26 @@ export class CellPlugin extends CorePlugin<CoreState> implements CoreState {
             sheetId,
             col,
             row,
+            style: null,
+            format: "",
+          });
+        }
+      }
+    }
+  }
+
+  /**
+   * Clear the styles, the format and the content of zones
+   */
+  private clearCells(sheetId: UID, zones: Zone[]) {
+    for (const zone of zones) {
+      for (let col = zone.left; col <= zone.right; col++) {
+        for (let row = zone.top; row <= zone.bottom; row++) {
+          this.dispatch("UPDATE_CELL", {
+            sheetId: sheetId,
+            col,
+            row,
+            content: "",
             style: null,
             format: "",
           });
@@ -460,7 +490,7 @@ export class CellPlugin extends CorePlugin<CoreState> implements CoreState {
     const hasContent = "content" in after || "formula" in after;
 
     // Compute the new cell properties
-    const afterContent = hasContent ? replaceSpecialSpaces(after?.content) : before?.content || "";
+    const afterContent = hasContent ? replaceNewLines(after?.content) : before?.content || "";
     let style: Style | undefined;
     if (after.style !== undefined) {
       style = after.style || undefined;

@@ -1,7 +1,8 @@
 import { Model } from "../../src";
 import { toNumber } from "../../src/functions/helpers";
 import { DEFAULT_LOCALE } from "../../src/types";
-import { setCellContent } from "../test_helpers/commands_helpers";
+import { setCellContent, updateLocale } from "../test_helpers/commands_helpers";
+import { FR_LOCALE } from "../test_helpers/constants";
 import { getEvaluatedCell } from "../test_helpers/getters_helpers";
 import {
   checkFunctionDoesntSpreadBeyondRange,
@@ -813,6 +814,72 @@ describe("COUNTIF formula", () => {
     expect(grid5Result.J81).toBe(0);
     expect(grid5Result.J82).toBe(1);
   });
+
+  test("COUNTIF on empty range", () => {
+    const grid = {
+      A1: '=COUNTIF(B1, "<>Hi")',
+      A2: '=COUNTIF(B1, "=Hi")',
+      A3: '=COUNTIF(B1, "*")',
+    };
+    const gridResult = evaluateGrid(grid);
+    expect(gridResult.A1).toBe(1);
+    expect(gridResult.A2).toBe(0);
+    expect(gridResult.A3).toBe(0);
+  });
+
+  test("COUNTIF with date predicate", () => {
+    const grid = {
+      A1: "01/01/2024",
+      A2: "01/02/2024",
+      A3: '="01/01/2024"',
+      B1: '=COUNTIF(A1, "<01/02/2024")',
+      B2: '=COUNTIF(A2, "<01/02/2024")',
+      B3: '=COUNTIF(A2, "<=01/02/2024")',
+      B4: '=COUNTIF(A3, "01/01/2024")',
+      B5: '=COUNTIF(A3, "<=01/01/2024")',
+      B6: '=COUNTIF(A3, "01/2024")',
+    };
+    expect(evaluateGrid(grid)).toMatchObject({
+      B1: 1,
+      B2: 0,
+      B3: 1,
+      B4: 1,
+      B5: 0,
+      B6: 1,
+    });
+  });
+
+  test("COUNTIF with string against a date predicate", () => {
+    const grid = {
+      A1: "hello",
+      B1: '=COUNTIF(A1, "01/02/2024")',
+    };
+    expect(evaluateGrid(grid)).toMatchObject({
+      B1: 0,
+    });
+  });
+
+  test("COUNTIF with number against a date predicate", () => {
+    const grid = {
+      A1: "0",
+      B1: '=COUNTIF(A1, "12/30/1899")',
+      B2: '=COUNTIF(A1, "<=12/30/1899")',
+    };
+    expect(evaluateGrid(grid)).toMatchObject({
+      B1: 1,
+      B2: 1,
+    });
+  });
+
+  test("COUNTIF date predicates are localized", () => {
+    const model = new Model();
+    setCellContent(model, "A1", "01/02/2024");
+    setCellContent(model, "A2", '=COUNTIF(A1, "<02/01/2024")');
+    expect(getEvaluatedCell(model, "A2").value).toBe(1);
+
+    updateLocale(model, FR_LOCALE);
+    expect(getEvaluatedCell(model, "A2").value).toBe(0);
+  });
 });
 
 describe("COUNTIFS formula", () => {
@@ -850,6 +917,19 @@ describe("COUNTIFS formula", () => {
     expect(gridResult.D7).toBe(1);
     expect(gridResult.D8).toBe(4);
     expect(gridResult.D9).toBe(4);
+  });
+
+  test("COUNTIFS on empty range", () => {
+    const grid = {
+      A1: "Alice",
+      A2: '=COUNTIFS(A1, "Alice", B1, "<>Hi")',
+      A3: '=COUNTIFS(A1, "Alice", B1, "=Hi")',
+      A4: '=COUNTIFS(A1, "Alice", B1, "*")',
+    };
+    const gridResult = evaluateGrid(grid);
+    expect(gridResult.A2).toBe(1);
+    expect(gridResult.A3).toBe(0);
+    expect(gridResult.A4).toBe(0);
   });
 });
 
@@ -1003,6 +1083,19 @@ describe("COUNTUNIQUEIFS formula", () => {
     expect(gridResult.A14).toBe(2);
     expect(gridResult.A15).toBe(3);
     expect(gridResult.A16).toBe(2);
+  });
+
+  test("COUNTUNIQUEIFS on empty range", () => {
+    const grid = {
+      A1: "Alice",
+      A2: '=COUNTUNIQUEIFS(A1, A1, "Alice", B1, "<>Hi")',
+      A3: '=COUNTUNIQUEIFS(A1, A1, "Alice", B1, "=Hi")',
+      A4: '=COUNTUNIQUEIFS(A1, A1, "Alice", B1, "*")',
+    };
+    const gridResult = evaluateGrid(grid);
+    expect(gridResult.A2).toBe(1);
+    expect(gridResult.A3).toBe(0);
+    expect(gridResult.A4).toBe(0);
   });
 });
 
@@ -1511,6 +1604,37 @@ describe("LN formula", () => {
     expect(evaluateCell("A1", { A1: "=LN(A2)", A2: '=""' })).toBe("#ERROR"); // @compatibility: on google sheets, return #NUM!
     expect(evaluateCell("A1", { A1: "=LN(A2)", A2: '=" "' })).toBe("#ERROR"); // @compatibility: on google sheets, return #VALUE!
     expect(evaluateCell("A1", { A1: "=LN(A2)", A2: '="1"' })).toBeCloseTo(0, 9);
+  });
+});
+
+describe("LOG function", () => {
+  test("LOG takes 1-2 arguments", () => {
+    expect(evaluateCell("A1", { A1: "=LOG()" })).toBe("#BAD_EXPR");
+    expect(evaluateCell("A1", { A1: "=LOG(10)" })).toBe(1);
+    expect(evaluateCell("A1", { A1: "=LOG(10, 10)" })).toBe(1);
+    expect(evaluateCell("A1", { A1: "=LOG(10, 10, 0)" })).toBe("#BAD_EXPR");
+  });
+
+  test("Value argument bust be strictly positive", () => {
+    expect(evaluateCell("A1", { A1: "=LOG(0)" })).toBe("#ERROR");
+    expect(evaluateCell("A1", { A1: "=LOG(-1)" })).toBe("#ERROR");
+  });
+
+  test("Base argument must be positive and different from 1", () => {
+    expect(evaluateCell("A1", { A1: "=LOG(10, -1)" })).toBe("#ERROR");
+    expect(evaluateCell("A1", { A1: "=LOG(10, 0)" })).toBe("#ERROR");
+    expect(evaluateCell("A1", { A1: "=LOG(10, 1)" })).toBe("#ERROR");
+  });
+
+  test.each([
+    [1, 2, 0],
+    [100, 10, 2],
+    [16, 2, 4],
+    [5, 6, 0.898244402],
+    [125.15, 0.1, -2.097430854],
+  ])("function result =LOG(%s, %s)", (arg0: number, arg1: number, expectedResult: number) => {
+    const cellValue = evaluateCell("A1", { A1: `=LOG(${arg0}, ${arg1})` });
+    expect(cellValue).toBeCloseTo(expectedResult, 4);
   });
 });
 

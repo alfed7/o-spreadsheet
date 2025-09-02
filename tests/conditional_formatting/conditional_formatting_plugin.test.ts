@@ -24,8 +24,6 @@ import {
   toRangesData,
 } from "../test_helpers/helpers";
 
-jest.mock("../../src/helpers/uuid", () => require("../__mocks__/uuid"));
-
 let model: Model;
 let sheetId: UID;
 
@@ -180,7 +178,11 @@ describe("conditional format", () => {
       ranges: toRangesData(sheetId, "A1:A4"),
       sheetId,
     });
-    model.dispatch("DUPLICATE_SHEET", { sheetId, sheetIdTo: "Sheet2" });
+    model.dispatch("DUPLICATE_SHEET", {
+      sheetId,
+      sheetIdTo: "Sheet2",
+      sheetNameTo: "Copy of Sheet1",
+    });
     expect(model.getters.getConditionalFormats("Sheet2")).toEqual([
       {
         id: expect.any(String),
@@ -308,6 +310,15 @@ describe("conditional format", () => {
     expect(getStyle(model, "A2")).toEqual({
       fillColor: "#FF0000",
     });
+  });
+
+  test("Conditional formatting with an unbounded range on an invalid sheet", () => {
+    const result = model.dispatch("ADD_CONDITIONAL_FORMAT", {
+      cf: createEqualCF("4", { fillColor: "#0000FF" }, "2"),
+      ranges: toRangesData("not-a-valid-sheet-id", "B1,A1:A"),
+      sheetId,
+    });
+    expect(result).toBeCancelledBecause(CommandResult.InvalidSheetId);
   });
 
   test("Conditional formatting with empty target", () => {
@@ -479,7 +490,7 @@ describe("conditional format", () => {
     });
   });
 
-  test.skip("multiple conditional formats using stopIfTrue flag", () => {
+  test("multiple conditional formats using stopIfTrue flag", () => {
     setCellContent(model, "A1", "2");
 
     model.dispatch("ADD_CONDITIONAL_FORMAT", {
@@ -1650,6 +1661,29 @@ describe("conditional formats types", () => {
       });
       expect(result).toBeCancelledBecause(CommandResult.FirstArgMissing);
     });
+
+    test.each(["=$c:$2", "=suùù("])(
+      "Invalid formula ('%s') as CF value are ignored during CF evaluation",
+      (formula: string) => {
+        setCellContent(model, "A1", "5");
+        model.dispatch("ADD_CONDITIONAL_FORMAT", {
+          cf: {
+            rule: {
+              type: "CellIsRule",
+              operator: "NotEqual",
+              values: [formula],
+              style: { fillColor: "#ff0f0f" },
+            },
+            id: "11",
+          },
+          ranges: toRangesData(sheetId, "A1"),
+          sheetId,
+        });
+        expect(model.getters.getCellComputedStyle(model.getters.getActivePosition())).toMatchObject(
+          {}
+        );
+      }
+    );
   });
   test.each([
     ["Between", ["1"]],

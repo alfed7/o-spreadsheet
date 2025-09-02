@@ -24,6 +24,7 @@ import {
   localizeFormula,
 } from "../../helpers/locale";
 import { loopThroughReferenceType } from "../../helpers/reference_type";
+import { isSheetNameEqual } from "../../helpers/sheet";
 import { _t } from "../../translation";
 import {
   AddColumnsRowsCommand,
@@ -162,8 +163,8 @@ export class EditionPlugin extends UIPlugin {
         this.colorIndexByRange = {};
         break;
       case "CANCEL_EDITION":
-        this.cancelEditionAndActivateSheet();
         this.resetContent();
+        this.cancelEditionAndActivateSheet();
         this.colorIndexByRange = {};
         break;
       case "SET_CURRENT_CONTENT":
@@ -174,8 +175,8 @@ export class EditionPlugin extends UIPlugin {
         this.replaceSelection(cmd.text);
         break;
       case "SELECT_FIGURE":
-        this.cancelEditionAndActivateSheet();
         this.resetContent();
+        this.cancelEditionAndActivateSheet();
         break;
       case "ADD_COLUMNS_ROWS":
         this.onAddElements(cmd);
@@ -217,8 +218,8 @@ export class EditionPlugin extends UIPlugin {
         const sheetIdExists = !!this.getters.tryGetSheet(this.sheetId);
         if (!sheetIdExists && this.mode !== "inactive") {
           this.sheetId = this.getters.getActiveSheetId();
-          this.cancelEditionAndActivateSheet();
           this.resetContent();
+          this.cancelEditionAndActivateSheet();
           this.ui.raiseBlockingErrorUI(CELL_DELETED_MESSAGE);
         }
         break;
@@ -611,7 +612,7 @@ export class EditionPlugin extends UIPlugin {
         const { xc, sheetName: sheet } = splitReference(token.value);
         const sheetName = sheet || this.getters.getSheetName(this.sheetId);
 
-        if (this.getters.getSheetName(activeSheetId) !== sheetName) {
+        if (!isSheetNameEqual(this.getters.getSheetName(activeSheetId), sheetName)) {
           return false;
         }
         const refRange = this.getters.getRangeFromSheetXC(activeSheetId, xc);

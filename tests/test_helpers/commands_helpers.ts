@@ -1,3 +1,4 @@
+import { HEADER_HEIGHT, HEADER_WIDTH } from "../../src/constants";
 import { isInside, lettersToNumber, toCartesian, toZone } from "../../src/helpers/index";
 import { Model } from "../../src/model";
 import {
@@ -12,6 +13,7 @@ import {
   Direction,
   DispatchResult,
   Locale,
+  Pixel,
   SelectionStep,
   SortDirection,
   SortOptions,
@@ -544,6 +546,19 @@ export function setBorders(
   });
 }
 
+export function setBordersOnTarget(
+  model: Model,
+  xcs: string[],
+  border?: Border,
+  sheetId: UID = model.getters.getActiveSheetId()
+) {
+  return model.dispatch("SET_BORDERS_ON_TARGET", {
+    sheetId,
+    target: xcs.map(toZone),
+    border,
+  });
+}
+
 /**
  * Clear a cell
  */
@@ -554,6 +569,17 @@ export function clearCell(
 ) {
   const { col, row } = toCartesian(xc);
   return model.dispatch("CLEAR_CELL", { col, row, sheetId });
+}
+
+/**
+ * Clear cells in zones
+ */
+export function clearCells(
+  model: Model,
+  xcs: string[],
+  sheetId: UID = model.getters.getActiveSheetId()
+) {
+  return model.dispatch("CLEAR_CELLS", { target: xcs.map(toZone), sheetId });
 }
 
 /**
@@ -1001,7 +1027,11 @@ export function duplicateSheet(
   sheetId: UID = model.getters.getActiveSheetId(),
   sheetIdTo: UID = model.uuidGenerator.uuidv4()
 ) {
-  return model.dispatch("DUPLICATE_SHEET", { sheetId, sheetIdTo });
+  return model.dispatch("DUPLICATE_SHEET", {
+    sheetId,
+    sheetIdTo,
+    sheetNameTo: model.getters.getDuplicateSheetName(model.getters.getSheetName(sheetId)),
+  });
 }
 
 export function unfoldHeaderGroup(
@@ -1088,4 +1118,13 @@ export function removeDataValidation(
   sheetId: UID = model.getters.getActiveSheetId()
 ) {
   return model.dispatch("REMOVE_DATA_VALIDATION_RULE", { sheetId, id });
+}
+
+export function setSheetviewSize(model: Model, height: Pixel, width: Pixel, hasHeaders = true) {
+  return model.dispatch("RESIZE_SHEETVIEW", {
+    height,
+    width,
+    gridOffsetX: hasHeaders ? HEADER_WIDTH : 0,
+    gridOffsetY: hasHeaders ? HEADER_HEIGHT : 0,
+  });
 }

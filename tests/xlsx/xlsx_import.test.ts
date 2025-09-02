@@ -331,6 +331,15 @@ describe("Import xlsx data", () => {
     expect((cf.rule as CellIsRule).values).toEqual(values);
   });
 
+  test("Can import CF with formulas", () => {
+    const testSheet = getWorkbookSheet("jestCfs", convertedData)!;
+    const cf = getCFBeginningAt("B29", testSheet)!;
+
+    expect(cf.rule.type).toEqual("CellIsRule");
+    expect((cf.rule as CellIsRule).operator).toEqual("Between");
+    expect((cf.rule as CellIsRule).values).toEqual(["=$B$23", "=2+2"]);
+  });
+
   test.each([
     ["2 colors max", "H2"],
     ["3 colors max", "H3"],
@@ -653,7 +662,7 @@ describe("Import xlsx data", () => {
     });
   });
 
-  test("Can convert table formula ", () => {
+  test("Can convert table formula inside a table", () => {
     // Test table coordinates are in A1
     const testSheet = getWorkbookSheet("jestTable", convertedData)!;
 
@@ -665,9 +674,9 @@ describe("Import xlsx data", () => {
     expect(testSheet.cells["G4"]?.content).toEqual("=SUM(E4:E5)");
     expect(testSheet.cells["G5"]?.content).toEqual("=SUM(E4:E5)");
 
-    // Formula =Sum(TableName[[#All];[Rank]]) => transformed to Sum(Col E) (including totals)
-    expect(testSheet.cells["H4"]?.content).toEqual("=SUM(E4:E6)");
-    expect(testSheet.cells["H5"]?.content).toEqual("=SUM(E4:E6)");
+    // Formula =Sum(TableName[[#All];[Rank]]) => transformed to Sum(Col E) (including totals & headers)
+    expect(testSheet.cells["H4"]?.content).toEqual("=SUM(E3:E6)");
+    expect(testSheet.cells["H5"]?.content).toEqual("=SUM(E3:E6)");
 
     // Formula =TableName[[#Total];[Rank]] => transformed to bottom of Col E
     expect(testSheet.cells["I4"]?.content).toEqual("=E6");
@@ -676,6 +685,24 @@ describe("Import xlsx data", () => {
     // Formula =TableName[[#Headers];[Rank]] => transformed to header of Col E
     expect(testSheet.cells["J4"]?.content).toEqual("=E3");
     expect(testSheet.cells["J5"]?.content).toEqual("=E3");
+  });
+
+  test("Can convert table formula outside of a table", () => {
+    const testSheet = getWorkbookSheet("jestTable", convertedData)!;
+    // Formula = SUM(Table3[#All]) => transformed to SUM of whole table
+    expect(testSheet.cells["F9"]?.content).toEqual("=SUM(C3:J6)");
+
+    // Formula =SUM(Table2[Col2]) => Table2 is on another sheet (jestMiscTest)
+    expect(testSheet.cells["G9"]?.content).toEqual("=SUM(jestMiscTest!B8:B12)");
+
+    // Formula =SUM(Table3[[#Totals],[Age]:[Rank]]) => Total row, from column Age to Rank
+    expect(testSheet.cells["H9"]?.content).toEqual("=SUM(D6:E6)");
+
+    // Formula =SUM(Table3[[Age]:[Rank]]) => All row data, from column Age to Rank
+    expect(testSheet.cells["I9"]?.content).toEqual("=SUM(D4:E5)");
+
+    // Formula =SUM(Table3[[#Data];[Rank];[#Totals]]) => Data & Total rows, column Rank
+    expect(testSheet.cells["J9"]?.content).toEqual("=SUM(E4:E6)");
   });
 
   // We just import pivots as a Table (cells with some styling/borders).
@@ -801,11 +828,30 @@ describe("Import xlsx data", () => {
     expect(figure.width).toEqual(figure.height);
   });
 
+  test.each([
+    ["line chart", "top"],
+    ["bar chart", "right"],
+    ["doughnut chart", "bottom"],
+    ["pie chart", "none"],
+  ])("Can import %s charts with correct legend position", (chartTitle, chartLegendPosition) => {
+    const testSheet = getWorkbookSheet("jestCharts", convertedData)!;
+    const figure = testSheet.figures.find((figure) => figure.data.title === chartTitle)!;
+    const chartData = figure.data as BarChartDefinition;
+    expect(chartData.title).toEqual(chartTitle);
+    expect(chartData.legendPosition).toEqual(chartLegendPosition);
+  });
+
   describe("Misc tests", () => {
-    test("Newlines characters in strings are removed", () => {
+    test("Newlines characters in strings are preserved", () => {
       const testSheet = getWorkbookSheet("jestMiscTest", convertedData)!;
       const textWithNewLineInXLSX = testSheet.cells["A1"]?.content;
-      expect(textWithNewLineInXLSX).toEqual("This text have a newLine"); // newline should have been removed at import
+      expect(textWithNewLineInXLSX).toEqual("This text have\n a newLine");
+    });
+
+    test("White spaces are preserved", () => {
+      const testSheet = getWorkbookSheet("jestMiscTest", convertedData)!;
+      const textWithNewLineInXLSX = testSheet.cells["B1"]?.content;
+      expect(textWithNewLineInXLSX).toEqual("      with whitespace before");
     });
 
     test("Can hide gridLines", () => {

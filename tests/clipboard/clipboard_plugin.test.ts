@@ -1,8 +1,16 @@
+import { UIPlugin } from "../../src";
 import { DEFAULT_BORDER_DESC } from "../../src/constants";
 import { toCartesian, toZone, zoneToXc } from "../../src/helpers";
 import { ClipboardCellsState } from "../../src/helpers/clipboard/clipboard_cells_state";
 import { Model } from "../../src/model";
-import { ClipboardMIMEType, CommandResult, DEFAULT_LOCALE } from "../../src/types/index";
+import { featurePluginRegistry } from "../../src/plugins";
+import {
+  ClipboardMIMEType,
+  Command,
+  CommandResult,
+  DEFAULT_LOCALE,
+  DEFAULT_LOCALES,
+} from "../../src/types/index";
 import { XMLString } from "../../src/types/xlsx";
 import { parseXML, xmlEscape } from "../../src/xlsx/helpers/xml_helpers";
 import { MockClipboardData } from "../test_helpers/clipboard";
@@ -45,7 +53,13 @@ import {
   getEvaluatedCell,
   getStyle,
 } from "../test_helpers/getters_helpers";
-import { createEqualCF, getGrid, target, toRangesData } from "../test_helpers/helpers";
+import {
+  addTestPlugin,
+  createEqualCF,
+  getGrid,
+  target,
+  toRangesData,
+} from "../test_helpers/helpers";
 
 let model: Model;
 
@@ -349,11 +363,7 @@ describe("clipboard", () => {
     });
     copy(model, "B1");
     paste(model, "B4");
-    const sheetId = model.getters.getActiveSheetId();
-    expect(model.getters.isInMerge({ sheetId, ...toCartesian("B4") })).toBe(true);
-    expect(model.getters.isInMerge({ sheetId, ...toCartesian("B5") })).toBe(true);
-    expect(model.getters.isInMerge({ sheetId, ...toCartesian("C4") })).toBe(true);
-    expect(model.getters.isInMerge({ sheetId, ...toCartesian("B5") })).toBe(true);
+    expect(model.getters.getMerges("s1")).toMatchObject([toZone("B1:C2"), toZone("B4:C5")]);
   });
 
   test("can cut and paste merged content", () => {
@@ -362,14 +372,19 @@ describe("clipboard", () => {
     });
     cut(model, "B1:C2");
     paste(model, "B4");
-    expect(model.getters.isInMerge({ sheetId: "s2", ...toCartesian("B1") })).toBe(false);
-    expect(model.getters.isInMerge({ sheetId: "s2", ...toCartesian("B2") })).toBe(false);
-    expect(model.getters.isInMerge({ sheetId: "s2", ...toCartesian("C1") })).toBe(false);
-    expect(model.getters.isInMerge({ sheetId: "s2", ...toCartesian("C2") })).toBe(false);
-    expect(model.getters.isInMerge({ sheetId: "s2", ...toCartesian("B4") })).toBe(true);
-    expect(model.getters.isInMerge({ sheetId: "s2", ...toCartesian("B5") })).toBe(true);
-    expect(model.getters.isInMerge({ sheetId: "s2", ...toCartesian("C4") })).toBe(true);
-    expect(model.getters.isInMerge({ sheetId: "s2", ...toCartesian("C5") })).toBe(true);
+    expect(model.getters.getMerges("s2")).toHaveLength(1);
+    expect(model.getters.getMerges("s2")).toMatchObject([toZone("B4:C5")]);
+  });
+
+  test("can cut and paste merged content in another sheet", () => {
+    const model = new Model({
+      sheets: [{ id: "s1", colNumber: 5, rowNumber: 5, merges: ["B1:C2"] }, { id: "s2" }],
+    });
+    cut(model, "B1:C2");
+    activateSheet(model, "s2");
+    paste(model, "B4");
+    expect(model.getters.getMerges("s1")).toEqual([]);
+    expect(model.getters.getMerges("s2")).toMatchObject([toZone("B4:C5")]);
   });
 
   test("Pasting merge on content will remove the content", () => {
@@ -1252,6 +1267,17 @@ describe("clipboard", () => {
     expect(getCellContent(model, "B3")).toBe("Kikou");
   });
 
+  test("Can paste localized content as value", () => {
+    const model = new Model();
+    updateLocale(model, DEFAULT_LOCALES[1]);
+    setCellContent(model, "A1", "5.4");
+    setCellContent(model, "A2", "=SUM(4.5)");
+    copy(model, "A1:A2");
+    paste(model, "B1", "onlyValue");
+    expect(getCell(model, "B1")?.content).toBe("5.4");
+    expect(getCell(model, "B2")?.content).toBe("4.5");
+  });
+
   test("can copy a formula and paste -> apply the format defined by user, if not apply the automatic evaluated format ", () => {
     const model = new Model();
 
@@ -1761,6 +1787,28 @@ describe("clipboard", () => {
       { ranges: ["A1"], rule: { style: { fillColor: "#00FF00" } } },
       { ranges: ["B2"], rule: { style: { fillColor: "#FF0000" } } },
     ]);
+  });
+
+  test("copy/paste a CF zone only dispatch a singled ADD_CONDITIONAL_FORMAT", () => {
+    const commands: Command[] = [];
+    class MyUIPlugin extends UIPlugin {
+      handle = (cmd: Command) => commands.push(cmd);
+    }
+    addTestPlugin(featurePluginRegistry, MyUIPlugin);
+
+    const model = new Model({ sheets: [{ colNumber: 5, rowNumber: 5 }] });
+    const sheetId = model.getters.getActiveSheetId();
+    model.dispatch("ADD_CONDITIONAL_FORMAT", {
+      cf: createEqualCF("1", { fillColor: "#FF0000" }, "1"),
+      ranges: toRangesData(sheetId, "A1,A2"),
+      sheetId,
+    });
+
+    copy(model, "A1:A2");
+    paste(model, "B1");
+
+    expect(model.getters.getConditionalFormats(sheetId)).toMatchObject([{ ranges: ["A1:B2"] }]);
+    expect(commands.filter((c) => c.type === "ADD_CONDITIONAL_FORMAT")).toHaveLength(2);
   });
 
   test("can copy and paste a cell which contains a cross-sheet reference", () => {

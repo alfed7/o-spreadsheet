@@ -297,6 +297,19 @@ describe("Model resizer", () => {
       expect(model.getters.getRowSize(sheetId, 0)).toEqual(font36CellHeight);
       expect(model.getters.getRowSize(sheetId, 1)).toEqual(DEFAULT_CELL_HEIGHT);
     });
+
+    test("resizing rows/columns and removing rows/columns maintains expected sizes in new sheet", () => {
+      const sheetId = "sh2";
+      createSheet(model, { sheetId });
+
+      resizeRows(model, [5], 200, sheetId);
+      deleteRows(model, [10], sheetId);
+      expect(model.getters.getRowSize(sheetId, 5)).toEqual(200);
+
+      resizeColumns(model, ["B"], 200, sheetId);
+      deleteColumns(model, ["E"], sheetId);
+      expect(model.getters.getColSize(sheetId, 1)).toEqual(200);
+    });
   });
 
   describe("resize rows when changing font", () => {
@@ -641,5 +654,17 @@ describe("Model resizer", () => {
     resizeRows(model, [0], 26.6);
     expect(model.getters.getColSize(sheetId, 0)).toBe(26);
     expect(model.getters.getRowSize(sheetId, 0)).toBe(27);
+  });
+
+  test("Should use markdown label instead of full link for auto row height", () => {
+    const model = new Model();
+    const sheetId = model.getters.getActiveSheetId();
+
+    setStyle(model, "A1", { wrapping: "wrap" });
+    const initialCellHeight = getDefaultCellHeight(getCell(model, "A1"));
+    expect(model.getters.getRowSize(sheetId, 0)).toBe(initialCellHeight);
+
+    setCellContent(model, "A1", "[link](https://example.com)");
+    expect(model.getters.getRowSize(sheetId, 0)).toBe(initialCellHeight);
   });
 });

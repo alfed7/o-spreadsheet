@@ -213,6 +213,7 @@ export interface ColorPickerProps {
   maxHeight?: Pixel;
   onColorPicked: (color: Color) => void;
   currentColor: Color;
+  disableNoColor?: boolean;
 }
 
 interface State {
@@ -365,7 +366,7 @@ export class ColorPicker extends Component<ColorPickerProps, SpreadsheetChildEnv
 
   setHexColor(ev: InputEvent) {
     // only support HEX code input
-    const val = (ev.target as HTMLInputElement).value.slice(0, 7);
+    const val = (ev.target as HTMLInputElement).value.replace("##", "#").slice(0, 7);
     this.state.customHexColor = val;
     if (!isColorValid(val)) {
     } else {
@@ -390,4 +391,5 @@ ColorPicker.props = {
   currentColor: { type: String, optional: true },
   maxHeight: { type: Number, optional: true },
   anchorRect: Object,
+  disableNoColor: { type: Boolean, optional: true },
 };

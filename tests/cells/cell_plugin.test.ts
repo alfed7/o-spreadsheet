@@ -7,6 +7,7 @@ import {
   addColumns,
   addRows,
   clearCell,
+  clearCells,
   copy,
   createSheet,
   deleteColumns,
@@ -160,17 +161,43 @@ describe("getCellText", () => {
     expect(getCell(model, "A1")).toBeUndefined();
   });
 
-  test("clear style", () => {
+  test("clear some content", () => {
+    const model = new Model();
+    setCellContent(model, "A1", "hello");
+    setCellContent(model, "A2", "there");
+    clearCells(model, ["A1:A2"]);
+    expect(getCell(model, "A1")).toBeUndefined();
+    expect(getCell(model, "A2")).toBeUndefined();
+  });
+
+  test("clear some style", () => {
     const model = new Model();
     setStyle(model, "A1", { bold: true });
     clearCell(model, "A1");
     expect(getCell(model, "A1")).toBeUndefined();
   });
 
+  test("clear some style", () => {
+    const model = new Model();
+    setStyle(model, "A1", { bold: true });
+    setStyle(model, "A2", { italic: true });
+    clearCells(model, ["A1:A2"]);
+    expect(getCell(model, "A1")).toBeUndefined();
+    expect(getCell(model, "A2")).toBeUndefined();
+  });
+
   test("clear format", () => {
     const model = new Model();
     setCellFormat(model, "A1", "#,##0.0");
     clearCell(model, "A1");
+    expect(getCell(model, "A1")).toBeUndefined();
+  });
+
+  test("clear some format", () => {
+    const model = new Model();
+    setCellFormat(model, "A1", "#,##0.0");
+    setCellFormat(model, "A2", "0%");
+    clearCells(model, ["A1:A2"]);
     expect(getCell(model, "A1")).toBeUndefined();
   });
 
@@ -181,6 +208,19 @@ describe("getCellText", () => {
     setCellFormat(model, "A1", "#,##0.0");
     clearCell(model, "A1");
     expect(getCell(model, "A1")).toBeUndefined();
+  });
+
+  test("clear some content, style and format", () => {
+    const model = new Model();
+    setCellContent(model, "A1", "hello");
+    setCellContent(model, "A2", "there");
+    setStyle(model, "A1", { bold: true });
+    setStyle(model, "A2", { italic: true });
+    setCellFormat(model, "A1", "#,##0.0");
+    setCellFormat(model, "A2", "0%");
+    clearCells(model, ["A1", "A2"]);
+    expect(getCell(model, "A1")).toBeUndefined();
+    expect(getCell(model, "A2")).toBeUndefined();
   });
 
   test("clear cell outside of sheet", () => {
@@ -199,6 +239,12 @@ describe("getCellText", () => {
     const model = new Model();
     setCellContent(model, "A1", '="hello \\"world\\""');
     expect(getEvaluatedCell(model, "A1")?.formattedValue).toBe('hello "world"');
+  });
+
+  test("Non breaking spaces are kept on cell insertion", () => {
+    const model = new Model();
+    setCellContent(model, "A1", "hello\u00A0world");
+    expect(getCellText(model, "A1")).toBe("hello\u00A0world");
   });
 });
 
@@ -506,7 +552,6 @@ test.each([
   ["Line\nLine2", "Line\nLine2"],
   ["Line\rLine2", "Line\nLine2"],
   ["Line\r\nLine2", "Line\nLine2"],
-  ["Word\xa0Word2", "Word Word2"], // \xa0 => non-breaking space
 ])(
   "Content string given to update cell are properly sanitized %s",
   (originalString: string, sanitizedString: string) => {

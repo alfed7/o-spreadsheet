@@ -3,6 +3,7 @@ import { ChartTerms } from "../../../src/components/translations_terms";
 import { BACKGROUND_CHART_COLOR } from "../../../src/constants";
 import { toHex, toZone } from "../../../src/helpers";
 import { ChartDefinition } from "../../../src/types";
+import { PieChartRuntime } from "../../../src/types/chart";
 import { BarChartDefinition } from "../../../src/types/chart/bar_chart";
 import { LineChartDefinition } from "../../../src/types/chart/line_chart";
 import {
@@ -14,6 +15,7 @@ import {
   paste,
   selectCell,
   setCellContent,
+  setCellFormat,
   setStyle,
   updateChart,
 } from "../../test_helpers/commands_helpers";
@@ -1055,13 +1057,18 @@ describe("charts", () => {
 
     test("Side panel correctly reacts to has_header checkbox check/uncheck (with only one point)", async () => {
       createTestChart("basicChart");
-      updateChart(model, chartId, { type: "line", labelRange: "C2", dataSets: ["A1"] });
+      updateChart(model, chartId, {
+        type: "line",
+        labelRange: "C2",
+        dataSets: ["A1"],
+        dataSetsHaveTitle: false,
+      });
       await nextTick();
       await simulateClick(".o-figure");
       await simulateClick(".o-figure-menu-item");
       await simulateClick(".o-menu div[data-name='edit']");
 
-      const checkbox = document.querySelector("input[name='labelsAsText']") as HTMLInputElement;
+      const checkbox = document.querySelector(".o-use-row-as-headers input") as HTMLInputElement;
       expect(checkbox.checked).toBe(false);
 
       await simulateClick(checkbox);
@@ -1070,13 +1077,18 @@ describe("charts", () => {
 
     test("Side panel correctly reacts to has_header checkbox check/uncheck (with two datasets)", async () => {
       createTestChart("basicChart");
-      updateChart(model, chartId, { type: "line", labelRange: "C2", dataSets: ["A1:A2", "A1"] });
+      updateChart(model, chartId, {
+        type: "line",
+        labelRange: "C2",
+        dataSets: ["A1:A2", "A1"],
+        dataSetsHaveTitle: false,
+      });
       await nextTick();
       await simulateClick(".o-figure");
       await simulateClick(".o-figure-menu-item");
       await simulateClick(".o-menu div[data-name='edit']");
 
-      const checkbox = document.querySelector("input[name='labelsAsText']") as HTMLInputElement;
+      const checkbox = document.querySelector(".o-use-row-as-headers input") as HTMLInputElement;
       expect(checkbox.checked).toBe(false);
 
       expect(checkbox.checked).toBe(false);
@@ -1139,13 +1151,20 @@ describe("charts", () => {
     expect(getCellContent(model, "D6")).toEqual("");
   });
 
-  test("Chart is not re-rendered if its runtime do not change", async () => {
+  test("Pie chart border color matches the background color", async () => {
+    createTestChart("basicChart");
+    updateChart(model, chartId, { type: "pie", background: "#FF0000" });
+    const runtime = model.getters.getChartRuntime(chartId) as PieChartRuntime;
+    expect(runtime.chartJsConfig.data?.datasets?.[0].borderColor).toBe("#FF0000");
+  });
+
+  test("Chart is re-rendered if it's label format change", async () => {
     const updateChart = jest.spyOn((window as any).Chart.prototype, "update");
     createTestChart("basicChart");
     await nextTick();
-    setCellContent(model, "C3", "value");
+    setCellFormat(model, "B2", "#.##0.00");
     await nextTick();
-    expect(updateChart).not.toHaveBeenCalled();
+    expect(updateChart).toHaveBeenCalled();
   });
 });
 

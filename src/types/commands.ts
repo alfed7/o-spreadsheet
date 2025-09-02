@@ -56,7 +56,9 @@ export interface SheetDependentCommand {
   sheetId: UID;
 }
 
-export function isSheetDependent(cmd: CoreCommand): boolean {
+export function isSheetDependent(
+  cmd: CoreCommand
+): cmd is Extract<CoreCommand, SheetDependentCommand> {
   return "sheetId" in cmd;
 }
 
@@ -66,7 +68,9 @@ export interface HeadersDependentCommand {
   elements: HeaderIndex[];
 }
 
-export function isHeadersDependant(cmd: CoreCommand): boolean {
+export function isHeadersDependant(
+  cmd: CoreCommand
+): cmd is Extract<CoreCommand, HeadersDependentCommand> {
   return "dimension" in cmd && "sheetId" in cmd && "elements" in cmd;
 }
 
@@ -75,7 +79,9 @@ export interface TargetDependentCommand {
   target: Zone[];
 }
 
-export function isTargetDependent(cmd: CoreCommand): boolean {
+export function isTargetDependent(
+  cmd: CoreCommand
+): cmd is Extract<CoreCommand, TargetDependentCommand> {
   return "target" in cmd && "sheetId" in cmd;
 }
 
@@ -83,7 +89,9 @@ export interface RangesDependentCommand {
   ranges: RangeData[];
 }
 
-export function isRangeDependant(cmd: CoreCommand): boolean {
+export function isRangeDependant(
+  cmd: CoreCommand
+): cmd is Extract<CoreCommand, RangesDependentCommand> {
   return "ranges" in cmd;
 }
 
@@ -93,17 +101,21 @@ export interface PositionDependentCommand {
   row: number;
 }
 
+export function isPositionDependent(
+  cmd: CoreCommand
+): cmd is Extract<CoreCommand, PositionDependentCommand> {
+  return "col" in cmd && "row" in cmd && "sheetId" in cmd;
+}
+
 export interface ZoneDependentCommand {
   sheetId: UID;
   zone: Zone;
 }
 
-export function isZoneDependent(cmd: CoreCommand): boolean {
-  return "zone" in cmd;
-}
-
-export function isPositionDependent(cmd: CoreCommand): boolean {
-  return "col" in cmd && "row" in cmd && "sheetId" in cmd;
+export function isZoneDependent(
+  cmd: CoreCommand
+): cmd is Extract<CoreCommand, ZoneDependentCommand> {
+  return "sheetId" in cmd && "zone" in cmd;
 }
 
 export const invalidateEvaluationCommands = new Set<CommandTypes>([
@@ -115,6 +127,7 @@ export const invalidateEvaluationCommands = new Set<CommandTypes>([
   "UNDO",
   "REDO",
   "ADD_MERGE",
+  "DUPLICATE_SHEET",
   "UPDATE_LOCALE",
 ]);
 
@@ -125,7 +138,6 @@ export const invalidateDependenciesCommands = new Set<CommandTypes>([
 
 export const invalidateCFEvaluationCommands = new Set<CommandTypes>([
   ...invalidateEvaluationCommands,
-  "DUPLICATE_SHEET",
   "EVALUATE_CELLS",
   "ADD_CONDITIONAL_FORMAT",
   "REMOVE_CONDITIONAL_FORMAT",
@@ -163,6 +175,7 @@ export const coreTypes = new Set<CoreCommandTypes>([
   "UPDATE_CELL",
   "UPDATE_CELL_POSITION",
   "CLEAR_CELL",
+  "CLEAR_CELLS",
   "DELETE_CONTENT",
 
   /** GRID SHAPE */
@@ -209,6 +222,7 @@ export const coreTypes = new Set<CoreCommandTypes>([
   "CLEAR_FORMATTING",
   "SET_BORDER",
   "SET_ZONE_BORDERS",
+  "SET_BORDERS_ON_TARGET",
 
   /** CHART */
   "CREATE_CHART",
@@ -376,6 +390,7 @@ export interface DeleteSheetCommand extends SheetDependentCommand {
 export interface DuplicateSheetCommand extends SheetDependentCommand {
   type: "DUPLICATE_SHEET";
   sheetIdTo: UID;
+  sheetNameTo: string;
 }
 
 export interface MoveSheetCommand extends SheetDependentCommand {
@@ -513,6 +528,11 @@ export interface SetZoneBordersCommand extends TargetDependentCommand {
 
 export interface SetBorderCommand extends PositionDependentCommand {
   type: "SET_BORDER";
+  border: Border | undefined;
+}
+
+export interface SetBorderTargetCommand extends TargetDependentCommand {
+  type: "SET_BORDERS_ON_TARGET";
   border: Border | undefined;
 }
 
@@ -754,6 +774,10 @@ export interface DeleteContentCommand {
 
 export interface ClearCellCommand extends PositionDependentCommand {
   type: "CLEAR_CELL";
+}
+
+export interface ClearCellsCommand extends TargetDependentCommand {
+  type: "CLEAR_CELLS";
 }
 
 export interface UndoCommand {
@@ -1016,6 +1040,7 @@ export type CoreCommand =
   | UpdateCellCommand
   | UpdateCellPositionCommand
   | ClearCellCommand
+  | ClearCellsCommand
   | DeleteContentCommand
 
   /** GRID SHAPE */
@@ -1062,6 +1087,7 @@ export type CoreCommand =
   | ClearFormattingCommand
   | SetZoneBordersCommand
   | SetBorderCommand
+  | SetBorderTargetCommand
 
   /** CHART */
   | CreateChartCommand
@@ -1234,6 +1260,7 @@ export const enum CommandResult {
   InvalidRange = "InvalidRange",
   InvalidZones = "InvalidZones",
   InvalidSheetId = "InvalidSheetId",
+  InvalidCellId = "InvalidCellId",
   InvalidFigureId = "InvalidFigureId",
   InputAlreadyFocused = "InputAlreadyFocused",
   MaximumRangesReached = "MaximumRangesReached",

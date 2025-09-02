@@ -1,6 +1,6 @@
 import { Model } from "../../src/model";
 import { setCellContent } from "../test_helpers/commands_helpers";
-import { getEvaluatedCell } from "../test_helpers/getters_helpers";
+import { getCellError, getEvaluatedCell } from "../test_helpers/getters_helpers";
 import {
   createModelFromGrid,
   evaluateCell,
@@ -231,6 +231,15 @@ describe("LOOKUP formula", () => {
     expect(evaluateCellFormat("A5", { A5: "=LOOKUP(2, A1:B2)", ...grid })).toBe("m/d/yy");
     expect(evaluateCellFormat("A6", { A6: "=LOOKUP(1, A1:A2, C1:C2)", ...grid })).toBe("#,##0[$$]");
   });
+
+  test("Accept simple values on the search range or the return range", () => {
+    const grid = evaluateGrid({
+      A1: "=LOOKUP(42, 42)",
+      A2: "=LOOKUP(42, 42, 42)",
+    });
+    expect(grid.A1).toBe(42);
+    expect(grid.A2).toBe(42);
+  });
 });
 
 describe("MATCH formula", () => {
@@ -301,10 +310,10 @@ describe("MATCH formula", () => {
     const ascendingAsDescending = { ...rangeAscending, ...evAsDescending };
     const aAsD = evaluateGrid(ascendingAsDescending);
 
-    expect(aAsD.D1).toBe(3); // @compatibility: on googlesheets, return 6
-    expect(aAsD.D2).toBe(3); // @compatibility: on googlesheets, return 6
-    expect(aAsD.D3).toBe(3); // @compatibility: on googlesheets, return 6
-    expect(aAsD.D4).toBe("#N/A"); // @compatibility: on googlesheets, return 6
+    expect(aAsD.D1).toBe(4); // @compatibility: on googlesheets, return 6
+    expect(aAsD.D2).toBe(4); // @compatibility: on googlesheets, return 6
+    expect(aAsD.D3).toBe(4); // @compatibility: on googlesheets, return 6
+    expect(aAsD.D4).toBe(4); // @compatibility: on googlesheets, return 6
     expect(aAsD.D5).toBe("#N/A");
     expect(aAsD.D6).toBe("#N/A");
     expect(aAsD.D7).toBe("#N/A");
@@ -339,12 +348,12 @@ describe("MATCH formula", () => {
     const unsortedAsDescending = { ...rangeUnsorted, ...evAsDescending };
     const uAsD = evaluateGrid(unsortedAsDescending);
 
-    expect(uAsD.D1).toBe(5); // @compatibility: on googlesheets, return 6
-    expect(uAsD.D2).toBe(5); // @compatibility: on googlesheets, return 6
-    expect(uAsD.D3).toBe(5); // @compatibility: on googlesheets, return 6
+    expect(uAsD.D1).toBe(4); // @compatibility: on googlesheets, return 6
+    expect(uAsD.D2).toBe(4); // @compatibility: on googlesheets, return 6
+    expect(uAsD.D3).toBe(4); // @compatibility: on googlesheets, return 6
     expect(uAsD.D4).toBe(3);
-    expect(uAsD.D5).toBe("#N/A"); // @compatibility: on googlesheets, return 2
-    expect(uAsD.D6).toBe("#N/A"); // @compatibility: on googlesheets, return 2
+    expect(uAsD.D5).toBe(2);
+    expect(uAsD.D6).toBe(2);
     expect(uAsD.D7).toBe("#N/A");
     expect(uAsD.D8).toBe("#N/A");
   });
@@ -446,6 +455,17 @@ describe("MATCH formula", () => {
 
   test("Accents and uppercase are ignored", () => {
     expect(evaluateCell("A1", { A1: '=MATCH("epee", B1, 1)', B1: "Épée" })).toBe(1);
+  });
+
+  test("Accept simple values on the search range or the return range", () => {
+    const grid = evaluateGrid({
+      A1: "=MATCH(42, 42)",
+      A2: "=MATCH(42, 42, 0)",
+      A3: "=MATCH(42, 42, -1)",
+    });
+    expect(grid.A1).toBe(1);
+    expect(grid.A2).toBe(1);
+    expect(grid.A3).toBe(1);
   });
 });
 
@@ -758,6 +778,21 @@ describe("VLOOKUP formula", () => {
     expect(evaluateCellFormat("D1", { D1: '=VLOOKUP("A2", A2:C3, 3)', ...grid })).toBe("#,##0[$€]");
     expect(evaluateCellFormat("E1", { E1: '=VLOOKUP("B2", A2:C3, 2)', ...grid })).toBe("0%");
   });
+
+  test("Error on key not found displays correctly", () => {
+    const model = new Model();
+    setCellContent(model, "A1", "=VLOOKUP(5, B1, 1)");
+    expect(getCellError(model, "A1")).toBe("Did not find value '5' in VLOOKUP evaluation.");
+  });
+
+  test("Accept simple values on the search range or the return range", () => {
+    const grid = evaluateGrid({
+      A1: "=VLOOKUP(42, 42, 1)",
+      A2: "=VLOOKUP(42, 42, 1, true)",
+    });
+    expect(grid.A1).toBe(42);
+    expect(grid.A2).toBe(42);
+  });
 });
 
 describe("HLOOKUP formula", () => {
@@ -931,6 +966,21 @@ describe("HLOOKUP formula", () => {
 
   test("Accents and uppercase are ignored", () => {
     expect(evaluateCell("A1", { A1: '=HLOOKUP("epee", B1, 1)', B1: "Épée" })).toBe("Épée");
+  });
+
+  test("Error on key not found displays correctly", () => {
+    const model = new Model();
+    setCellContent(model, "A1", "=HLOOKUP(5, B1, 1)");
+    expect(getCellError(model, "A1")).toBe("Did not find value '5' in HLOOKUP evaluation.");
+  });
+
+  test("Accept simple values on the search range or the return range", () => {
+    const grid = evaluateGrid({
+      A1: "=HLOOKUP(42, 42, 1)",
+      A2: "=HLOOKUP(42, 42, 1, true)",
+    });
+    expect(grid.A1).toBe(42);
+    expect(grid.A2).toBe(42);
   });
 });
 
@@ -1123,7 +1173,7 @@ describe("XLOOKUP formula", () => {
         Z6: "=XLOOKUP( 4, B1:B6, C1:C6,, -1, 2 )",
         Z7: '=XLOOKUP( "b", B1:B6, C1:C6,, 1, 2 )',
       });
-      expect(grid.Z1).toBe("C2");
+      expect(grid.Z1).toBe("C1");
       expect(grid.Z2).toBe("C4");
       expect(grid.Z3).toBe("#N/A");
       expect(grid.Z4).toBe("C2");
@@ -1143,7 +1193,7 @@ describe("XLOOKUP formula", () => {
         Z6: "=XLOOKUP( 4, B1:B6, C1:C6,, -1, -2 )",
         Z7: '=XLOOKUP( "b", B1:B6, C1:C6,, 1, -2 )',
       });
-      expect(grid.Z1).toBe("C5");
+      expect(grid.Z1).toBe("C6");
       expect(grid.Z2).toBe("C3");
       expect(grid.Z3).toBe("#N/A");
       expect(grid.Z4).toBe("C5");
@@ -1163,6 +1213,40 @@ describe("XLOOKUP formula", () => {
     expect(evaluateCellFormat("E1", { E1: "=XLOOKUP(42, B1:C1, B2:C3)", ...grid })).toBe(
       "#,##0[$$]"
     );
+  });
+
+  test("Empty lookup range with reverse search mode does not crash", () => {
+    const grid = evaluateGrid({
+      A1: "=XLOOKUP(5, B1:B6, C1:C6, , , -1 )",
+      A2: "=XLOOKUP(5, B1:B6, C1:C6, , , -2 )",
+    });
+    expect(grid.A1).toBe("#N/A");
+    expect(grid.A2).toBe("#N/A");
+  });
+
+  test("Error on key not found displays correctly", () => {
+    const model = new Model();
+    setCellContent(model, "A1", "=XLOOKUP(5, B1, C1)");
+    expect(getCellError(model, "A1")).toBe("Did not find value '5' in XLOOKUP evaluation.");
+  });
+
+  test.each([
+    "=XLOOKUP(42, 42, 42)",
+    "=XLOOKUP(42, 42, 42, 24)",
+    "=XLOOKUP(42, 42, 42, 24, -1)",
+    "=XLOOKUP(42, 42, 42, 24, 0)",
+    "=XLOOKUP(42, 42, 42, 24, 1)",
+    "=XLOOKUP(42, 42, 42, 24, -1, -1)",
+    "=XLOOKUP(42, 42, 42, 24, 0 , -1)",
+    "=XLOOKUP(42, 42, 42, 24, 1 , -1)",
+    "=XLOOKUP(42, 42, 42, 24, -1,  2)",
+    "=XLOOKUP(42, 42, 42, 24, 0 ,  2)",
+    "=XLOOKUP(42, 42, 42, 24, 1 ,  2)",
+    "=XLOOKUP(42, 42, 42, 24, -1,  -2)",
+    "=XLOOKUP(42, 42, 42, 24, 0 ,  -2)",
+    "=XLOOKUP(42, 42, 42, 24, 1 ,  -2)",
+  ])("Accept simple values on the search range or the return range. Formula: %s", (formula) => {
+    expect(evaluateCell("A1", { A1: formula })).toBe(42);
   });
 });
 

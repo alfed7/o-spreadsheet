@@ -1,5 +1,10 @@
 import { INCORRECT_RANGE_STRING, NEWLINE } from "../constants";
-import { getFormulaNumberRegex, rangeReference, replaceSpecialSpaces } from "../helpers/index";
+import {
+  getFormulaNumberRegex,
+  rangeReference,
+  replaceNewLines,
+  specialWhiteSpaceRegexp,
+} from "../helpers/index";
 import { DEFAULT_LOCALE, Locale } from "../types";
 
 /**
@@ -42,12 +47,16 @@ export interface Token {
 }
 
 export function tokenize(str: string, locale = DEFAULT_LOCALE): Token[] {
-  str = replaceSpecialSpaces(str);
+  str = replaceNewLines(str);
   const chars = new TokenizingChars(str);
   const result: Token[] = [];
+  const tokenizeSpace = specialWhiteSpaceRegexp.test(str)
+    ? tokenizeSpecialCharacterSpace
+    : tokenizeSimpleSpace;
 
   while (!chars.isOver()) {
     let token =
+      tokenizeNewLine(chars) ||
       tokenizeSpace(chars) ||
       tokenizeArgsSeparator(chars, locale) ||
       tokenizeParenthesis(chars) ||
@@ -143,6 +152,12 @@ function tokenizeString(chars: TokenizingChars): Token | null {
   return null;
 }
 
+/**
+  - \p{L} is for any letter (from any language)
+  - \p{N} is for any number
+  - the u flag at the end is for unicode, which enables the `\p{...}` syntax
+ */
+const unicodeSymbolCharRegexp = /\p{L}|\p{N}|_|\.|!|\$/u;
 const SYMBOL_CHARS = new Set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.!$");
 
 /**
@@ -184,7 +199,10 @@ function tokenizeSymbol(chars: TokenizingChars): Token | null {
       };
     }
   }
-  while (chars.current && SYMBOL_CHARS.has(chars.current)) {
+  while (
+    chars.current &&
+    (SYMBOL_CHARS.has(chars.current) || chars.current.match(unicodeSymbolCharRegexp))
+  ) {
     result += chars.shift();
   }
   if (result.length) {
@@ -198,7 +216,31 @@ function tokenizeSymbol(chars: TokenizingChars): Token | null {
   return null;
 }
 
-function tokenizeSpace(chars: TokenizingChars): Token | null {
+function tokenizeSpecialCharacterSpace(chars: TokenizingChars): Token | null {
+  let spaces = "";
+  while (chars.current === " " || (chars.current && chars.current.match(specialWhiteSpaceRegexp))) {
+    spaces += chars.shift();
+  }
+
+  if (spaces) {
+    return { type: "SPACE", value: spaces };
+  }
+  return null;
+}
+
+function tokenizeSimpleSpace(chars: TokenizingChars): Token | null {
+  let spaces = "";
+  while (chars.current === " ") {
+    spaces += chars.shift();
+  }
+
+  if (spaces) {
+    return { type: "SPACE", value: spaces };
+  }
+  return null;
+}
+
+function tokenizeNewLine(chars: TokenizingChars): Token | null {
   let length = 0;
   while (chars.current === NEWLINE) {
     length++;
@@ -206,15 +248,6 @@ function tokenizeSpace(chars: TokenizingChars): Token | null {
   }
   if (length) {
     return { type: "SPACE", value: NEWLINE.repeat(length) };
-  }
-
-  while (chars.current === " ") {
-    length++;
-    chars.shift();
-  }
-
-  if (length) {
-    return { type: "SPACE", value: " ".repeat(length) };
   }
   return null;
 }

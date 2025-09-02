@@ -71,7 +71,6 @@
               t-on-click.stop=""
               t-att-value="state.customHexColor"
               t-on-input="setHexColor"
-              maxlength="7"
             />
             <div class="o-color-preview" t-att-style="colorPreviewStyle"/>
           </div>
@@ -84,10 +83,12 @@
             </button>
           </div>
         </div>
-        <div class="o-separator"/>
-        <div class="o-buttons">
-          <button t-on-click="resetColor" class="o-cancel">No Color</button>
-        </div>
+        <t t-if="!props.disableNoColor">
+          <div class="o-separator"/>
+          <div class="o-buttons">
+            <button t-on-click="resetColor" class="o-cancel">No Color</button>
+          </div>
+        </t>
       </div>
     </Popover>
   </t>

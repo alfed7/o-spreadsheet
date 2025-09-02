@@ -1,13 +1,14 @@
 import { Component, useExternalListener, useState } from "@odoo/owl";
-import { CancelledReason, CommandResult } from "../../../..";
 import { DEFAULT_COLOR_SCALE_MIDPOINT_COLOR } from "../../../../constants";
-import { colorNumberString, rangeReference } from "../../../../helpers";
+import { colorNumberString, isColorValid, rangeReference } from "../../../../helpers";
 import { canonicalizeCFRule } from "../../../../helpers/locale";
 import {
+  CancelledReason,
   CellIsRule,
   Color,
   ColorScaleRule,
   ColorScaleThreshold,
+  CommandResult,
   ConditionalFormat,
   ConditionalFormatRule,
   IconSetRule,
@@ -238,7 +239,7 @@ export class ConditionalFormattingEditor extends Component<Props, SpreadsheetChi
 
   setup() {
     const cf = this.props.editedCf || {
-      id: this.env.model.uuidGenerator.uuidv4(),
+      id: this.env.model.uuidGenerator.smallUuid(),
       ranges: this.env.model.getters
         .getSelectedZones()
         .map((zone) =>
@@ -454,6 +455,10 @@ export class ConditionalFormattingEditor extends Component<Props, SpreadsheetChi
   }
 
   setColorScaleColor(target: string, color: Color) {
+    if (!isColorValid(color)) {
+      return;
+    }
+
     const point = this.state.rules.colorScale[target];
     if (point) {
       point.color = Number.parseInt(color.substr(1), 16);

@@ -1,13 +1,6 @@
-import {
-  DateTime,
-  deepCopy,
-  deepEquals,
-  groupConsecutive,
-  isConsecutive,
-  lazy,
-  memoize,
-  range,
-} from "../../src/helpers";
+import seedrandom from "seedrandom";
+import { DateTime, deepCopy, deepEquals, UuidGenerator } from "../../src/helpers";
+import { groupConsecutive, isConsecutive, lazy, memoize, range } from "../../src/helpers/misc";
 
 describe("Misc", () => {
   test("range", () => {
@@ -246,19 +239,6 @@ test.each([
   expect(deepEquals(o2, o1)).toEqual(expectedResult);
 });
 
-test("deepEquals with argument ignoring functions", () => {
-  const o1 = { a: 1, b: () => 2, c: 2 };
-  const o2 = { a: 1, b: () => 2, c: 2 };
-  const o3 = { a: 1, b: () => 2, c: 3 };
-  const o4 = { a: 2, b: () => 2, c: 2 };
-  expect(deepEquals(o1, o2)).toEqual(false);
-  expect(deepEquals(o1, o2, "ignoreFunctions")).toEqual(true);
-  expect(deepEquals(o1, o3)).toEqual(false);
-  expect(deepEquals(o1, o3, "ignoreFunctions")).toEqual(false);
-  expect(deepEquals(o1, o4)).toEqual(false);
-  expect(deepEquals(o1, o4, "ignoreFunctions")).toEqual(false);
-});
-
 describe("isConsecutive", () => {
   test("consecutive", () => {
     expect(isConsecutive([2, 3, 1])).toBeTruthy();
@@ -286,5 +266,50 @@ describe("Memoize", () => {
 
   test("Memoized function name", () => {
     expect(memoizedFn.name).toEqual("smile (memoized)");
+  });
+});
+
+describe("UUID", () => {
+  test("Can generate UUID on environnement missing window.crypto", () => {
+    seedrandom("seed", { global: true });
+    jest.spyOn(window, "crypto", "get").mockReturnValue(undefined as unknown as Crypto);
+
+    const uuidGenerator = new UuidGenerator();
+    expect(uuidGenerator.uuidv4()).toBe("9d28f280-be50-4a0c-a166-9ba361b2fb6b");
+    expect(uuidGenerator.uuidv4()).toBe("9e42e52b-d387-40e8-b284-db1c93448b70");
+
+    expect(uuidGenerator.smallUuid()).toBe("d3d8fa3c-5fd2");
+    expect(uuidGenerator.smallUuid()).toBe("1079cad0-d88b");
+  });
+
+  test("Can generate UUID on environnement with window.crypto", () => {
+    seedrandom("seed", { global: true });
+    const mockCrypto = {
+      getRandomValues: (array: Uint8Array) => {
+        for (let i = 0; i < array.length; i++) {
+          array[i] = Math.floor(Math.random() * 256);
+        }
+        return array;
+      },
+    };
+    jest.spyOn(window, "crypto", "get").mockReturnValue(mockCrypto as Crypto);
+
+    const uuidGenerator = new UuidGenerator();
+    expect(uuidGenerator.uuidv4()).toBe("17698da6-740c-4ed3-bde7-60faf206d0e5");
+    expect(uuidGenerator.uuidv4()).toBe("b69741c8-91fd-4ed2-8724-8a56cc8c66db");
+
+    expect(uuidGenerator.smallUuid()).toBe("61025c5c-7a2d");
+    expect(uuidGenerator.smallUuid()).toBe("2262468c-923d");
+  });
+
+  test("Can generate uuid with isFastIdStrategy", () => {
+    const uuidGenerator = new UuidGenerator();
+    uuidGenerator.setIsFastStrategy(true);
+
+    expect(uuidGenerator.uuidv4()).toBe("1");
+    expect(uuidGenerator.uuidv4()).toBe("2");
+
+    expect(uuidGenerator.smallUuid()).toBe("3");
+    expect(uuidGenerator.smallUuid()).toBe("4");
   });
 });

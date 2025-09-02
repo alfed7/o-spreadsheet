@@ -25,6 +25,7 @@ import { range, toCartesian, toUnboundedZone, toXC, toZone } from "../../src/hel
 import { Model } from "../../src/model";
 import { MergePlugin } from "../../src/plugins/core/merge";
 import { CorePluginConstructor } from "../../src/plugins/core_plugin";
+import { SheetUIPlugin } from "../../src/plugins/ui_feature";
 import { UIPluginConstructor } from "../../src/plugins/ui_plugin";
 import { ComposerSelection } from "../../src/plugins/ui_stateful";
 import { topbarMenuRegistry } from "../../src/registries";
@@ -71,6 +72,10 @@ export function spyDispatch(parent: Spreadsheet): jest.SpyInstance {
 
 export function spyModelDispatch(model: Model): jest.SpyInstance {
   return jest.spyOn(model, "dispatch");
+}
+
+export function spyUiPluginHandle(model: Model): jest.SpyInstance {
+  return jest.spyOn(getPlugin(model, SheetUIPlugin), "handle");
 }
 
 export function getPlugin<T extends new (...args: any) => any>(
@@ -598,11 +603,6 @@ export async function exportPrettifiedXlsx(model: Model): Promise<XLSXExport> {
   };
 }
 
-export function mockUuidV4To(model: Model, value: number | string) {
-  //@ts-ignore
-  return model.uuidGenerator.setNextId(value);
-}
-
 export const mockChart = () => {
   const mockChartData: ChartConfiguration = {
     data: { datasets: [] },
@@ -734,6 +734,7 @@ type ComposerWrapperProps = {
 export class ComposerWrapper extends Component<ComposerWrapperProps, SpreadsheetChildEnv> {
   static components = { Composer };
   static template = xml/*xml*/ `
+    <div class="o-spreadsheet"/>
     <Composer t-props="composerProps"/>
   `;
   state = useState({ focusComposer: <ComposerFocusType>"inactive" });

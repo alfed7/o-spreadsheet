@@ -35,12 +35,10 @@ import {
   getName,
   getNode,
   makeTestEnv,
-  mockUuidV4To,
   restoreDefaultFunctions,
   spyModelDispatch,
   target,
 } from "../test_helpers/helpers";
-jest.mock("../../src/helpers/uuid", () => require("../__mocks__/uuid"));
 
 describe("Menu Item Registry", () => {
   let menuDefinitions;
@@ -326,6 +324,11 @@ describe("Menu Item actions", () => {
       selectRow(model, lastRow, "updateAnchor");
       expect(getNode(path).isVisible(env)).toBeFalsy();
     });
+
+    test("Selecting column should hide the option for row deletion", async () => {
+      selectColumn(model, 4, "overrideSelection");
+      expect(getNode(path).isVisible(env)).toBeFalsy();
+    });
   });
 
   describe("Edit -> edit_delete_column", () => {
@@ -397,6 +400,11 @@ describe("Menu Item actions", () => {
       selectColumn(model, 3, "newAnchor");
       selectColumn(model, lastColumn, "updateAnchor");
 
+      expect(getNode(path).isVisible(env)).toBeFalsy();
+    });
+
+    test("Selecting row should hide the option for column deletion", async () => {
+      selectRow(model, 4, "overrideSelection");
       expect(getNode(path).isVisible(env)).toBeFalsy();
     });
   });
@@ -896,15 +904,15 @@ describe("Menu Item actions", () => {
   });
 
   test("Insert -> new sheet", () => {
-    mockUuidV4To(model, 42);
     const activeSheetId = env.model.getters.getActiveSheetId();
     doAction(["insert", "insert_sheet"], env);
+    const newSheetId = env.model.getters.getSheetIds()[1];
     expect(dispatch).toHaveBeenNthCalledWith(1, "CREATE_SHEET", {
-      sheetId: "42",
+      sheetId: newSheetId,
       position: 1,
     });
     expect(dispatch).toHaveBeenNthCalledWith(2, "ACTIVATE_SHEET", {
-      sheetIdTo: "42",
+      sheetIdTo: newSheetId,
       sheetIdFrom: activeSheetId,
     });
   });

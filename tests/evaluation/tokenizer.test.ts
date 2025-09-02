@@ -60,7 +60,7 @@ describe("tokenizer", () => {
 
   test("spaces", () => {
     expect(tokenize("  ")).toEqual([{ type: "SPACE", value: " ".repeat(2) }]);
-    expect(tokenize(" \t\v\f")).toEqual([{ type: "SPACE", value: " ".repeat(4) }]);
+    expect(tokenize(" \t\v\f")).toEqual([{ type: "SPACE", value: " \t\v\f" }]);
     expect(tokenize("= 50 %")).toEqual([
       { type: "OPERATOR", value: "=" },
       { type: "SPACE", value: " " },
@@ -100,6 +100,8 @@ describe("tokenizer", () => {
   test("can tokenize various number expressions", () => {
     expect(tokenize("1.1")).toEqual([{ type: "NUMBER", value: "1.1" }]);
     expect(tokenize("1e3")).toEqual([{ type: "NUMBER", value: "1e3" }]);
+    expect(tokenize("1e+3")).toEqual([{ type: "NUMBER", value: "1e+3" }]);
+    expect(tokenize("1e-3")).toEqual([{ type: "NUMBER", value: "1e-3" }]);
   });
 
   test("debug formula token", () => {
@@ -287,10 +289,38 @@ describe("tokenizer", () => {
     ]);
   });
 
-  test("Unknown characters", () => {
+  test("non-ascii characters", () => {
     expect(tokenize("=ù4")).toEqual([
       { type: "OPERATOR", value: "=" },
-      { type: "UNKNOWN", value: "ù" },
+      { type: "SYMBOL", value: "ù4" },
+    ]);
+    expect(tokenize("=jai_nommé_mon_range")).toEqual([
+      { type: "OPERATOR", value: "=" },
+      { type: "SYMBOL", value: "jai_nommé_mon_range" },
+    ]);
+    expect(tokenize("=ßabc123")).toEqual([
+      { type: "OPERATOR", value: "=" },
+      { type: "SYMBOL", value: "ßabc123" },
+    ]);
+    expect(tokenize("=ぁ72")).toEqual([
+      { type: "OPERATOR", value: "=" },
+      { type: "SYMBOL", value: "ぁ72" },
+    ]);
+    expect(tokenize("=ñôtÁFñ(5, wr_öñg) + šymbøl +4")).toEqual([
+      { type: "OPERATOR", value: "=" },
+      { type: "SYMBOL", value: "ñôtÁFñ" },
+      { type: "LEFT_PAREN", value: "(" },
+      { type: "NUMBER", value: "5" },
+      { type: "ARG_SEPARATOR", value: "," },
+      { type: "SPACE", value: " " },
+      { type: "SYMBOL", value: "wr_öñg" },
+      { type: "RIGHT_PAREN", value: ")" },
+      { type: "SPACE", value: " " },
+      { type: "OPERATOR", value: "+" },
+      { type: "SPACE", value: " " },
+      { type: "SYMBOL", value: "šymbøl" },
+      { type: "SPACE", value: " " },
+      { type: "OPERATOR", value: "+" },
       { type: "NUMBER", value: "4" },
     ]);
   });

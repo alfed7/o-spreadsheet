@@ -3,7 +3,7 @@ import { LocalTransportService } from "./collaborative/local_transport_service";
 import { Session } from "./collaborative/session";
 import { DEFAULT_REVISION_ID } from "./constants";
 import { EventBus } from "./helpers/event_bus";
-import { deepCopy, UuidGenerator } from "./helpers/index";
+import { deepCopy, lazy, UuidGenerator } from "./helpers/index";
 import { buildRevisionLog } from "./history/factory";
 import {
   createEmptyExcelWorkbookData,
@@ -288,8 +288,9 @@ export class Model extends EventBus<any> implements CommandDispatcher {
     this.session.join(this.config.client);
   }
 
-  leaveSession() {
-    this.session.leave(this.exportData());
+  async leaveSession() {
+    const snapshot = this.getters.isReadonly() ? undefined : lazy(() => this.exportData());
+    await this.session.leave(snapshot);
   }
 
   private setupUiPlugin(Plugin: UIPluginConstructor) {
@@ -350,6 +351,11 @@ export class Model extends EventBus<any> implements CommandDispatcher {
         dispatch: (command: CoreCommand) => {
           const result = this.checkDispatchAllowed(command);
           if (!result.isSuccessful) {
+            // core views plugins need to be invalidated
+            this.dispatchToHandlers(this.coreHandlers, {
+              type: "UNDO",
+              commands: [command],
+            });
             return;
           }
           this.isReplayingCommand = true;
@@ -383,7 +389,7 @@ export class Model extends EventBus<any> implements CommandDispatcher {
 
   private setupConfig(config: Partial<ModelConfig>): ModelConfig {
     const client = config.client || {
-      id: this.uuidGenerator.uuidv4(),
+      id: this.uuidGenerator.smallUuid(),
       name: _t("Anonymous").toString(),
     };
     const transportService = config.transportService || new LocalTransportService();

@@ -430,7 +430,7 @@ export const SPLIT = {
 
     return transposeMatrix([result]);
   },
-  isExported: true,
+  isExported: false,
 } satisfies AddFunctionDescription;
 
 // -----------------------------------------------------------------------------
@@ -568,6 +568,19 @@ export const TEXT = {
   compute: function (number: Maybe<CellValue>, format: Maybe<CellValue>): string {
     const _number = toNumber(number, this.locale);
     return formatValue(_number, { format: toString(format), locale: this.locale });
+  },
+  isExported: true,
+} satisfies AddFunctionDescription;
+
+// -----------------------------------------------------------------------------
+// VALUE
+// -----------------------------------------------------------------------------
+export const VALUE = {
+  description: _t("Converts a string to a numeric value."),
+  args: [arg("value (number)", _t("the string to be converted"))],
+  returns: ["NUMBER"],
+  compute: function (value: Maybe<CellValue>): number {
+    return toNumber(value, this.locale);
   },
   isExported: true,
 } satisfies AddFunctionDescription;

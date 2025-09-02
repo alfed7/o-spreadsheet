@@ -9,6 +9,7 @@ import {
   PADDING_AUTORESIZE_VERTICAL,
 } from "../constants";
 import { Cell, Pixel, PixelPosition, Style } from "../types";
+import { isMarkdownLink, parseMarkdownLink } from "./misc";
 
 export function computeTextLinesHeight(textLineHeight: number, numberOfLines: number = 1) {
   return numberOfLines * (textLineHeight + MIN_CELL_TEXT_MARGIN) - MIN_CELL_TEXT_MARGIN;
@@ -25,14 +26,19 @@ export function getDefaultCellHeight(
   if (!cell || (!cell.isFormula && !cell.content)) {
     return DEFAULT_CELL_HEIGHT;
   }
-  const maxWidth = cell.style?.wrapping === "wrap" ? colSize - 2 * MIN_CELL_TEXT_MARGIN : undefined;
+  const content = cell.isFormula ? "" : cell.content;
+  return getCellContentHeight(ctx, content, cell.style, colSize);
+}
 
-  const numberOfLines = cell.isFormula
-    ? 1
-    : splitTextToWidth(ctx, cell.content, cell.style, maxWidth).length;
-
-  const fontSize = computeTextFontSizeInPixels(cell.style);
-
+export function getCellContentHeight(
+  ctx: CanvasRenderingContext2D,
+  content: string,
+  style: Style | undefined,
+  colSize: number
+) {
+  const maxWidth = style?.wrapping === "wrap" ? colSize - 2 * MIN_CELL_TEXT_MARGIN : undefined;
+  const numberOfLines = splitTextToWidth(ctx, content, style, maxWidth).length;
+  const fontSize = computeTextFontSizeInPixels(style);
   return computeTextLinesHeight(fontSize, numberOfLines) + 2 * PADDING_AUTORESIZE_VERTICAL;
 }
 
@@ -106,6 +112,7 @@ export function splitTextToWidth(
   width: number | undefined
 ): string[] {
   if (!style) style = {};
+  if (isMarkdownLink(text)) text = parseMarkdownLink(text).label;
   const brokenText: string[] = [];
 
   // Checking if text contains NEWLINE before split makes it very slightly slower if text contains it,

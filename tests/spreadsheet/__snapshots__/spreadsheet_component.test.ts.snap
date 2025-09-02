@@ -2,7 +2,7 @@
 
 exports[`Simple Spreadsheet Component simple rendering snapshot 1`] = `
 <div
-  class="o-spreadsheet"
+  class="o-spreadsheet h-100 w-100"
   style="grid-template-rows: 63px auto 37px"
 >
   
@@ -584,7 +584,7 @@ exports[`Simple Spreadsheet Component simple rendering snapshot 1`] = `
         >
           <div
             class="o-composer w-100 text-start"
-            contenteditable="true"
+            contenteditable="plaintext-only"
             spellcheck="false"
             style="padding:5px 0px 5px 8px; max-height:100px; line-height:24px; height:34px; "
             tabindex="1"
@@ -624,7 +624,9 @@ exports[`Simple Spreadsheet Component simple rendering snapshot 1`] = `
           class="o-grid-overlay overflow-hidden"
           style="top:26px; left:48px; height:calc(100% - 41px); width:calc(100% - 63px); "
         >
-          <div>
+          <div
+            class="position-absolute"
+          >
             
           </div>
           
@@ -660,9 +662,8 @@ exports[`Simple Spreadsheet Component simple rendering snapshot 1`] = `
           class="o-overlay"
         >
           <div
-            class="o-col-resizer"
+            class="o-col-resizer d-flex"
           >
-            
             
             
             
@@ -672,7 +673,6 @@ exports[`Simple Spreadsheet Component simple rendering snapshot 1`] = `
           <div
             class="o-row-resizer"
           >
-            
             
             
             
@@ -694,9 +694,9 @@ exports[`Simple Spreadsheet Component simple rendering snapshot 1`] = `
           >
             <div
               class="o-composer w-100 text-start"
-              contenteditable="true"
+              contenteditable="plaintext-only"
               spellcheck="false"
-              style=""
+              style="max-height: 1008.6px;"
               tabindex="1"
             />
             
@@ -833,7 +833,7 @@ exports[`Simple Spreadsheet Component simple rendering snapshot 1`] = `
     >
       
       <div
-        class="o-sheet-list d-flex w-100 overflow-hidden px-1"
+        class="o-sheet-list d-flex w-100 px-1"
       >
         <div
           class="o-ripple-container position-relative"

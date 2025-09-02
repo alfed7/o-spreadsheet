@@ -6,7 +6,7 @@ import { Color, Figure, Format, Getters, LocaleFormat, Range } from "../../../ty
 import { ChartRuntime, DataSet, DatasetValues, LabelValues } from "../../../types/chart/chart";
 import { formatValue, isDateTimeFormat } from "../../format";
 import { deepCopy, range } from "../../misc";
-import { recomputeZones, zoneToXc } from "../../zones";
+import { positions, recomputeZones, zoneToXc } from "../../zones";
 import { AbstractChart } from "./abstract_chart";
 import { drawScoreChart } from "./scorecard_chart";
 import { getScorecardConfiguration } from "./scorecard_chart_config_builder";
@@ -100,7 +100,7 @@ export function getDefaultChartJsRuntime(
   chart: AbstractChart,
   labels: string[],
   fontColor: Color,
-  { format, locale, truncateLabels }: LocaleFormat & { truncateLabels?: boolean }
+  { format, locale, truncateLabels = true }: LocaleFormat & { truncateLabels?: boolean }
 ): Required<ChartConfiguration> {
   const options: ChartOptions = {
     // https://www.chartjs.org/docs/latest/general/responsive.html
@@ -157,14 +157,21 @@ export function getDefaultChartJsRuntime(
 
 export function getChartLabelFormat(
   getters: Getters,
-  range: Range | undefined
+  range: Range | undefined,
+  shouldRemoveFirstLabel: boolean
 ): Format | undefined {
   if (!range) return undefined;
-  return getters.getEvaluatedCell({
-    sheetId: range.sheetId,
-    col: range.zone.left,
-    row: range.zone.top,
-  }).format;
+
+  const { sheetId, zone } = range;
+
+  const formats = positions(zone).map(
+    (position) => getters.getEvaluatedCell({ sheetId, ...position }).format
+  );
+  if (shouldRemoveFirstLabel) {
+    formats.shift();
+  }
+
+  return formats.find((format) => format !== undefined);
 }
 
 export function getChartLabelValues(
@@ -181,7 +188,8 @@ export function getChartLabelValues(
       };
     }
   } else if (dataSets.length === 1) {
-    for (let i = 0; i < getData(getters, dataSets[0]).length; i++) {
+    const dataLength = getData(getters, dataSets[0]).length;
+    for (let i = 0; i < dataLength; i++) {
       labels.formattedValues.push("");
       labels.values.push("");
     }

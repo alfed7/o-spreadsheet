@@ -11,6 +11,7 @@ import { ContentEditableHelper } from "../__mocks__/content_editable_helper";
 import {
   activateSheet,
   copy,
+  createFilter,
   createSheet,
   paste,
   renameSheet,
@@ -18,6 +19,7 @@ import {
   resizeRows,
   selectCell,
   setCellContent,
+  setSelection,
 } from "../test_helpers/commands_helpers";
 import {
   click,
@@ -28,6 +30,7 @@ import {
   rightClickCell,
   selectColumnByClicking,
   simulateClick,
+  triggerMouseEvent,
   triggerWheelEvent,
 } from "../test_helpers/dom_helper";
 import {
@@ -35,6 +38,7 @@ import {
   getActiveSheetFullScrollInfo,
   getCellContent,
   getCellText,
+  getFilterTable,
   getSelectionAnchorCellXc,
 } from "../test_helpers/getters_helpers";
 import {
@@ -145,10 +149,21 @@ describe("Composer interactions", () => {
 
   test("autocomplete disappear when grid composer is blurred", async () => {
     await keyDown({ key: "Enter" });
-    const topBarComposer = document.querySelector(".o-spreadsheet-topbar .o-composer")!;
     await typeInComposerGrid("=SU");
-    expect(fixture.querySelector(".o-grid .o-autocomplete-dropdown")).not.toBeNull();
-    await click(topBarComposer);
+    expect(fixture.querySelector(".o-popover .o-autocomplete-dropdown")).not.toBeNull();
+    await simulateClick(".o-grid-overlay");
+    expect(fixture.querySelector(".o-popover .o-autocomplete-dropdown")).toBeNull();
+  });
+
+  test("autocomplete disappears when there is no match with an unknown character", async () => {
+    await typeInComposerGrid("=éSUM");
+    await nextTick();
+    expect(fixture.querySelector(".o-grid .o-autocomplete-dropdown")).toBeNull();
+  });
+
+  test("autocomplete disappear when typing an unknown character", async () => {
+    await typeInComposerGrid("=SéSUM");
+    await nextTick();
     expect(fixture.querySelector(".o-grid .o-autocomplete-dropdown")).toBeNull();
   });
 
@@ -246,6 +261,7 @@ describe("Composer interactions", () => {
   });
 
   test("Starting the edition should not display the cell reference", async () => {
+    setSelection(model, ["A1:A2"]);
     await startComposition();
     expect(fixture.querySelector(".o-grid div.o-cell-reference")).toBeNull();
   });
@@ -450,6 +466,31 @@ describe("Composer interactions", () => {
     await clickCell(model, "B2");
     expect(getCellText(model, "A1")).toBe("=sum(sum(1,2))");
   });
+
+  test("Pressing Enter while editing a label does not open grid composer", async () => {
+    setCellContent(model, "A1", "[label](http://odoo.com)");
+    await simulateClick(".o-topbar-menu[data-id='insert']");
+    await simulateClick(".o-menu-item[data-name='insert_link']");
+    const editor = fixture.querySelector(".o-link-editor");
+    expect(editor).toBeTruthy();
+
+    editor!.querySelectorAll("input")[0].focus();
+    await keyDown({ key: "Enter" });
+    expect(fixture.querySelector(".o-link-editor")).toBeFalsy();
+    expect(model.getters.getEditionMode()).toBe("inactive");
+  });
+
+  test("should create a table when a cell is double clicked in edit mode", async () => {
+    selectCell(model, "A1");
+    triggerMouseEvent(
+      ".o-grid-overlay",
+      "dblclick",
+      0.5 * DEFAULT_CELL_WIDTH,
+      0.5 * DEFAULT_CELL_HEIGHT
+    );
+    createFilter(model, "A1");
+    expect(getFilterTable(model, "A1")).toBeTruthy();
+  });
 });
 
 describe("Grid composer", () => {
@@ -501,6 +542,28 @@ describe("Grid composer", () => {
     await nextTick();
     await keyDown({ key: "F4" });
     expect(getCellContent(model, "B2")).toBe("");
+  });
+
+  test("Wheel event on the composer should not scroll the viewport if the composer has a scrollbar", async () => {
+    const viewport = model.getters.getActiveMainViewport();
+    // Describes a div that has a scrollbar - the scrollHeight is greater than the clientHeight
+    jest.spyOn(HTMLDivElement.prototype, "clientHeight", "get").mockImplementation(() => 50);
+    jest.spyOn(HTMLDivElement.prototype, "scrollHeight", "get").mockImplementation(() => 150);
+    await startComposition("5");
+    triggerWheelEvent(document.activeElement!, { deltaY: 4 * DEFAULT_CELL_HEIGHT });
+    await nextTick();
+    expect(model.getters.getActiveMainViewport()).toMatchObject(viewport);
+
+    // Describes a div without a scrollbar, the scrollHeight matches the clientheight
+    jest.spyOn(HTMLDivElement.prototype, "clientHeight", "get").mockImplementation(() => 50);
+    jest.spyOn(HTMLDivElement.prototype, "scrollHeight", "get").mockImplementation(() => 50);
+    await nextTick();
+    triggerWheelEvent(document.activeElement!, { deltaY: 4 * DEFAULT_CELL_HEIGHT });
+    expect(model.getters.getActiveMainViewport()).toMatchObject({
+      ...viewport,
+      top: viewport.top + 4,
+      bottom: viewport.bottom + 4,
+    });
   });
 
   describe("grid composer basic style", () => {

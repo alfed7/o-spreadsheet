@@ -41,6 +41,17 @@ css/* scss */ `
       .o-bottom-bar-fade-in {
         background-image: linear-gradient(90deg, #cfcfcf, transparent 1%);
       }
+
+      .o-sheet-list {
+        overflow-y: hidden;
+        overflow-x: auto;
+
+        &::-webkit-scrollbar {
+          display: none; /* Chrome */
+        }
+        -ms-overflow-style: none; /* IE and Edge */
+        scrollbar-width: none; /* Firefox */
+      }
     }
 
     .o-bottom-bar-arrows {
@@ -115,7 +126,7 @@ export class BottomBar extends Component<Props, SpreadsheetChildEnv> {
     const activeSheetId = this.env.model.getters.getActiveSheetId();
     const position =
       this.env.model.getters.getSheetIds().findIndex((sheetId) => sheetId === activeSheetId) + 1;
-    const sheetId = this.env.model.uuidGenerator.uuidv4();
+    const sheetId = this.env.model.uuidGenerator.smallUuid();
     const name = this.env.model.getters.getNextSheetName(_t("Sheet"));
     this.env.model.dispatch("CREATE_SHEET", { sheetId, position, name });
     this.env.model.dispatch("ACTIVATE_SHEET", { sheetIdFrom: activeSheetId, sheetIdTo: sheetId });

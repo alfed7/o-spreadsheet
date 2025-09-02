@@ -1,7 +1,7 @@
 import { Model, UIPlugin } from "../../src";
 import { DEFAULT_REVISION_ID, MESSAGE_VERSION } from "../../src/constants";
 import { functionRegistry } from "../../src/functions";
-import { getDefaultCellHeight, range, toCartesian, toZone } from "../../src/helpers";
+import { getDefaultCellHeight, range, toCartesian, toZone, zoneToXc } from "../../src/helpers";
 import { featurePluginRegistry } from "../../src/plugins";
 import { Command, CommandResult, CoreCommand, DataValidationCriterion } from "../../src/types";
 import { CollaborationMessage } from "../../src/types/collaborative/transport_service";
@@ -20,6 +20,7 @@ import {
   deleteColumns,
   deleteRows,
   deleteSheet,
+  duplicateSheet,
   groupHeaders,
   hideRows,
   hideSheet,
@@ -29,6 +30,7 @@ import {
   selectCell,
   setCellContent,
   setStyle,
+  unMerge,
   undo,
   ungroupHeaders,
 } from "../test_helpers/commands_helpers";
@@ -294,6 +296,12 @@ describe("Multi users synchronisation", () => {
     ]);
     undo(bob);
     expect([alice, bob, charlie]).toHaveSynchronizedValue((user) => getCell(user, "B3"), undefined);
+    expect([alice, bob, charlie]).toHaveSynchronizedValue(
+      (user) => getCellContent(user, "C1"),
+      "hello"
+    );
+    undo(bob);
+    expect([alice, bob, charlie]).toHaveSynchronizedValue((user) => getCell(user, "B3"), undefined);
     expect([alice, bob, charlie]).toHaveSynchronizedValue((user) => getCell(user, "C1"), undefined);
     expect(undo(bob)).toBeCancelledBecause(CommandResult.EmptyUndoStack);
   });
@@ -373,6 +381,20 @@ describe("Multi users synchronisation", () => {
     );
   });
 
+  test("concurrent overlapping and non overlapping merge operations", () => {
+    const sheetId = alice.getters.getActiveSheetId();
+    merge(alice, "A2:A3");
+    merge(alice, "F1:F2");
+    network.concurrent(() => {
+      merge(alice, "A1:A3, C1:C2");
+      unMerge(bob, "A2:A3, F1:F2");
+    });
+    expect([alice, bob, charlie]).toHaveSynchronizedValue(
+      (user) => user.getters.getMerges(sheetId).map(zoneToXc),
+      ["A1:A3", "C1:C2"]
+    );
+  });
+
   test("Command not allowed is not dispatched to others users", () => {
     const spy = jest.spyOn(network, "sendMessage");
     setCellContent(alice, "A1", "hello", "invalidSheetId");
@@ -444,6 +466,7 @@ describe("Multi users synchronisation", () => {
     alice.dispatch("DUPLICATE_SHEET", {
       sheetId: firstSheetId,
       sheetIdTo: "42",
+      sheetNameTo: "Copy of Sheet1",
     });
     expect([alice, bob, charlie]).toHaveSynchronizedValue(
       (user) => user.getters.getActiveSheetId(),
@@ -538,6 +561,21 @@ describe("Multi users synchronisation", () => {
     alice.dispatch("DUPLICATE_SHEET", {
       sheetId: alice.getters.getActiveSheetId(),
       sheetIdTo: "Sheet2",
+      sheetNameTo: "Copy of Sheet1",
+    });
+    expect([alice, bob, charlie]).toHaveSynchronizedExportedData();
+  });
+
+  test("duplicate charts in deterministic order", () => {
+    const { network, alice, bob, charlie } = setupCollaborativeEnv();
+    createChart(bob, {}, "figureId");
+    redo(bob);
+    setCellContent(alice, "A1", "hello");
+    duplicateSheet(charlie, "Sheet1", "duplicateSheetId");
+
+    network.concurrent(() => {
+      undo(alice);
+      charlie.dispatch("DELETE_FIGURE", { id: "figureId", sheetId: "Sheet1" });
     });
     expect([alice, bob, charlie]).toHaveSynchronizedExportedData();
   });
@@ -643,6 +681,16 @@ describe("Multi users synchronisation", () => {
     const spy = jest.spyOn(alice["config"], "raiseBlockingErrorUI");
     alice.dispatch("DELETE_SHEET", { sheetId: activeSheetId });
     expect(spy).toHaveBeenCalled();
+    expect(alice.getters.getEditionMode()).toBe("inactive");
+  });
+
+  test("Delete sheet & Don't notify cell is deleted when composer is in selecting mode", () => {
+    const activeSheetId = alice.getters.getActiveSheetId();
+    createSheet(alice, { sheetId: "42" });
+    selectCell(alice, "A4");
+    setCellContent(alice, "A4", "=A1+");
+    alice.dispatch("START_EDITION");
+    alice.dispatch("DELETE_SHEET", { sheetId: activeSheetId });
     expect(alice.getters.getEditionMode()).toBe("inactive");
   });
 
@@ -868,6 +916,22 @@ describe("Multi users synchronisation", () => {
       expect(getEvaluatedCell(bob, "A1", "sheet2").value).toBe(2);
       functionRegistry.remove("GET.ASYNC.VALUE");
     });
+
+    test("evaluation is recomputed after command is rejected because of a concurrent update", () => {
+      createSheet(bob, { sheetId: "sheet2" });
+      network.concurrent(() => {
+        hideSheet(alice, "sheet2");
+        // this command is first accepted on Charlie's side
+        // but later rejected because there's actually only one visible sheet
+        deleteSheet(charlie, "Sheet1");
+      });
+      setCellContent(charlie, "A1", "hello", "Sheet1");
+      expect([alice, bob, charlie]).toHaveSynchronizedExportedData();
+      expect([alice, bob, charlie]).toHaveSynchronizedValue(
+        (user) => getEvaluatedCell(user, "A1").value,
+        "hello"
+      );
+    });
   });
 
   test("Reorder formatting rules concurrently", () => {
@@ -989,6 +1053,7 @@ describe("Multi users synchronisation", () => {
       alice.dispatch("DUPLICATE_SHEET", {
         sheetId: "Sheet1",
         sheetIdTo: "sheet2",
+        sheetNameTo: "Copy of Sheet1",
       });
       createFilter(charlie, "A1:B4", firstSheetId);
     });
@@ -1010,6 +1075,7 @@ describe("Multi users synchronisation", () => {
       charlie.dispatch("DUPLICATE_SHEET", {
         sheetId: firstSheetId,
         sheetIdTo: "sheet2",
+        sheetNameTo: "Copy of Sheet1",
       });
       charlie.dispatch("DELETE_SHEET", { sheetId: firstSheetId });
     });
@@ -1070,6 +1136,26 @@ describe("Multi users synchronisation", () => {
         { id: "id2", ranges: ["A3:A7"], criterion, isBlocking: false },
       ]
     );
+  });
+
+  test("do not send message while waiting an acknowledgement", () => {
+    const spy = jest.spyOn(network, "sendMessage");
+    network.concurrent(() => {
+      setCellContent(alice, "A1", "hello");
+      expect(spy).toHaveBeenCalledTimes(1); // send the first revision
+
+      setCellContent(alice, "A2", "hello");
+      expect(spy).toHaveBeenCalledTimes(1); // do not send the second revision because the first one is not acknowledged
+
+      // we simulate the server is sending the first message
+      // back to the client, which acknowledge it.
+      // It should send the second message to the server
+      network.notifyListeners(network["pendingMessages"][0]); // acknowledge the first message
+      expect(spy).toHaveBeenCalledTimes(2); // the second message is sent
+      setCellContent(alice, "A3", "hello");
+      expect(spy).toHaveBeenCalledTimes(2); // do not send any message because the second one is not acknowledged
+    });
+    expect(spy).toHaveBeenCalledTimes(3);
   });
 });
 

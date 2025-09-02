@@ -21,7 +21,7 @@ export const linkSheet: ActionSpec = {
 export const deleteSheet: ActionSpec = {
   name: _t("Delete"),
   isVisible: (env) => {
-    return env.model.getters.getSheetIds().length > 1;
+    return env.model.getters.getVisibleSheetIds().length > 1;
   },
   execute: (env) =>
     env.askConfirmation(_t("Are you sure you want to delete this sheet?"), () => {
@@ -33,10 +33,13 @@ export const duplicateSheet: ActionSpec = {
   name: _t("Duplicate"),
   execute: (env) => {
     const sheetIdFrom = env.model.getters.getActiveSheetId();
-    const sheetIdTo = env.model.uuidGenerator.uuidv4();
+    const sheetNameFrom = env.model.getters.getSheetName(sheetIdFrom);
+    const sheetIdTo = env.model.uuidGenerator.smallUuid();
+    const sheetNameTo = env.model.getters.getDuplicateSheetName(sheetNameFrom);
     env.model.dispatch("DUPLICATE_SHEET", {
       sheetId: sheetIdFrom,
       sheetIdTo,
+      sheetNameTo,
     });
     env.model.dispatch("ACTIVATE_SHEET", { sheetIdFrom, sheetIdTo });
   },

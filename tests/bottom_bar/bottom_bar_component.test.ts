@@ -26,10 +26,8 @@ import {
   triggerMouseEvent,
   triggerWheelEvent,
 } from "../test_helpers/dom_helper";
-import { makeTestEnv, mockUuidV4To, mountComponent, nextTick } from "../test_helpers/helpers";
+import { makeTestEnv, mountComponent, nextTick } from "../test_helpers/helpers";
 import { mockGetBoundingClientRect } from "../test_helpers/mock_helpers";
-
-jest.mock("../../src/helpers/uuid", () => require("../__mocks__/uuid"));
 
 let fixture: HTMLElement;
 
@@ -78,16 +76,16 @@ describe("BottomBar component", () => {
   test("Can create a new sheet", async () => {
     const { model } = await mountBottomBar();
     const dispatch = jest.spyOn(model, "dispatch");
-    mockUuidV4To(model, 42);
     const activeSheetId = model.getters.getActiveSheetId();
     await click(fixture, ".o-add-sheet");
+    const newSheetId = model.getters.getSheetIds()[1];
     expect(dispatch).toHaveBeenNthCalledWith(1, "CREATE_SHEET", {
       name: "Sheet2",
-      sheetId: "42",
+      sheetId: newSheetId,
       position: 1,
     });
     expect(dispatch).toHaveBeenNthCalledWith(2, "ACTIVATE_SHEET", {
-      sheetIdTo: "42",
+      sheetIdTo: newSheetId,
       sheetIdFrom: activeSheetId,
     });
   });
@@ -260,7 +258,7 @@ describe("BottomBar component", () => {
       expect(sheetName.getAttribute("contenteditable")).toEqual("false");
       await doubleClick(sheetName);
       await nextTick();
-      expect(sheetName.getAttribute("contenteditable")).toEqual("true");
+      expect(sheetName.getAttribute("contenteditable")).toEqual("plaintext-only");
       expect(document.activeElement).toEqual(sheetName);
     });
 
@@ -279,7 +277,7 @@ describe("BottomBar component", () => {
       await nextTick();
       await click(fixture, ".o-menu-item[data-name='rename'");
       const sheetName = fixture.querySelector<HTMLElement>(".o-sheet-name")!;
-      expect(sheetName.getAttribute("contenteditable")).toEqual("true");
+      expect(sheetName.getAttribute("contenteditable")).toEqual("plaintext-only");
       expect(document.activeElement).toEqual(sheetName);
     });
 
@@ -388,7 +386,6 @@ describe("BottomBar component", () => {
   test("Can duplicate a sheet", async () => {
     const { model } = await mountBottomBar();
     const dispatch = jest.spyOn(model, "dispatch");
-    mockUuidV4To(model, 123);
 
     triggerMouseEvent(".o-sheet", "contextmenu");
     await nextTick();
@@ -396,7 +393,8 @@ describe("BottomBar component", () => {
     await click(fixture, ".o-menu-item[data-name='duplicate'");
     expect(dispatch).toHaveBeenCalledWith("DUPLICATE_SHEET", {
       sheetId: sheet,
-      sheetIdTo: "123",
+      sheetIdTo: expect.any(String),
+      sheetNameTo: expect.any(String),
     });
   });
 
@@ -603,6 +601,23 @@ describe("BottomBar component", () => {
       simulateClick(".o-bottom-bar-arrow-left");
       simulateClick(".o-bottom-bar-arrow-left");
       expect(scrollTo).toBe(200);
+    });
+
+    test("Selecting a sheet from the context menu scrolls to that sheet", async () => {
+      const mockScrollIntoView = jest.fn();
+      HTMLElement.prototype.scrollIntoView = mockScrollIntoView;
+
+      expect(model.getters.getActiveSheetId()).toBe("Sheet1");
+
+      await click(fixture, ".o-list-sheets");
+      await click(fixture, ".o-menu-item[data-name='Sheet6']");
+
+      expect(model.getters.getActiveSheetId()).toBe("Sheet6");
+
+      const sheet6Element = fixture.querySelector(".o-sheet[data-id='Sheet6']");
+      expect(mockScrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", inline: "nearest" });
+      expect(mockScrollIntoView).toHaveBeenCalledTimes(1);
+      expect(mockScrollIntoView.mock.instances[0]).toBe(sheet6Element);
     });
   });
 
@@ -885,6 +900,21 @@ describe("BottomBar component", () => {
     test("Cannot drag & drop sheets in readonly mode", async () => {
       model.updateMode("readonly");
       await dragSheet("Sheet1", { mouseMoveX: 10, mouseUp: false });
+      expect(getElComputedStyle('.o-sheet[data-id="Sheet1"]', "position")).toBe("");
+      expect(getElComputedStyle('.o-sheet[data-id="Sheet1"]', "left")).toBe("");
+    });
+
+    test("Cannot drag & drop sheets by clicking the sheetName in edit mode", async () => {
+      const sheetName = fixture.querySelector<HTMLElement>(".o-sheet-name")!;
+      const sheetId = model.getters.getActiveSheetId();
+      await doubleClick(sheetName);
+      await nextTick();
+      await dragElement(
+        `.o-sheet[data-id="${sheetId}"] .o-sheet-name`,
+        { x: 10, y: 0 },
+        { x: sheetName.getBoundingClientRect().x, y: 0 },
+        false
+      );
       expect(getElComputedStyle('.o-sheet[data-id="Sheet1"]', "position")).toBe("");
       expect(getElComputedStyle('.o-sheet[data-id="Sheet1"]', "left")).toBe("");
     });

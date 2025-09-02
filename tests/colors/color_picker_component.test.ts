@@ -33,6 +33,7 @@ async function mountColorPicker(partialProps: Partial<ColorPickerProps> = {}, mo
     currentColor: partialProps.currentColor || "#000000",
     maxHeight: partialProps.maxHeight !== undefined ? partialProps.maxHeight : 1000,
     anchorRect: partialProps.anchorRect || { x: 0, y: 0, width: 0, height: 0 },
+    disableNoColor: partialProps.disableNoColor || false,
   };
   ({ fixture } = await mountComponent(ColorPickerTestParent, { model, props }));
 }
@@ -168,9 +169,18 @@ describe("Color Picker buttons", () => {
     expect(picker.style["display"]).toEqual("none");
   });
 
+  test("Hides the 'No Color' button when disableNoColor prop is set to true", async () => {
+    await mountColorPicker({ disableNoColor: true });
+    expect(fixture.querySelector(".o-buttons .o-cancel")).toBeNull();
+  });
+
   test.each([
     "#fff",
+    "##fff",
     "fff",
+    "#ffffff",
+    "##ffffff",
+    "ffffff",
     "#FFFFFF00", // Hex + alpha
   ])("Can input a custom HEX code, alpha is ignored", async (hexCode) => {
     await mountColorPicker();
@@ -178,12 +188,15 @@ describe("Color Picker buttons", () => {
 
     const inputTarget = fixture.querySelector(".o-custom-input-preview input")!;
     await setInputValueAndTrigger(inputTarget, hexCode as Color);
-    expect((inputTarget as HTMLInputElement).value).toBeSameColorAs(hexCode.slice(0, 7));
+    expect((inputTarget as HTMLInputElement).value).toBeSameColorAs(
+      hexCode.replace("##", "#").slice(0, 7)
+    );
     const addButton = fixture.querySelector(".o-add-button")!;
     expect(addButton.classList).not.toContain("o-disabled");
   });
 
   test.each([
+    "#fff#000",
     "rgb(1,1,1)", // rgb
     "rgb(1,1,1,0.5)", // rgba
   ])("refuse non strictly HEX codes", async (hexCode) => {

@@ -1,5 +1,4 @@
 import { compile } from "../../../formulas";
-import { matrixMap } from "../../../functions/helpers";
 import { forEachPositionsInZone, JetSet, lazy, toXC } from "../../../helpers";
 import { createEvaluatedCell, errorCell, evaluateLiteral } from "../../../helpers/cells";
 import { ModelConfig } from "../../../model";
@@ -7,7 +6,6 @@ import { _t } from "../../../translation";
 import {
   Cell,
   CellPosition,
-  CellValue,
   CellValueType,
   EvaluatedCell,
   FormulaCell,
@@ -159,18 +157,20 @@ export class Evaluator {
     this.evaluate(this.getAllCells());
   }
 
-  evaluateFormula(sheetId: UID, formulaString: string): CellValue | Matrix<CellValue> {
-    const compiledFormula = compile(formulaString);
-
-    const ranges: Range[] = compiledFormula.dependencies.map((xc) =>
-      this.getters.getRangeFromSheetXC(sheetId, xc)
-    );
-    this.updateCompilationParameters();
-    const array = compiledFormula.execute(ranges, ...this.compilationParams);
-    if (isMatrix(array)) {
-      return matrixMap(array, (cell) => cell.value);
+  evaluateFormulaResult(
+    sheetId: UID,
+    formulaString: string
+  ): ValueAndFormat | Matrix<ValueAndFormat> {
+    try {
+      const compiledFormula = compile(formulaString);
+      const ranges: Range[] = compiledFormula.dependencies.map((xc) =>
+        this.getters.getRangeFromSheetXC(sheetId, xc)
+      );
+      this.updateCompilationParameters();
+      return compiledFormula.execute(ranges, ...this.compilationParams);
+    } catch (error) {
+      return this.handleError(error);
     }
-    return array.value;
   }
 
   private getAllCells(): JetSet<PositionId> {
@@ -195,7 +195,7 @@ export class Evaluator {
     const arrayFormulas = this.spreadingRelations.getFormulaPositionsSpreadingOn(positionId);
     const cells = new JetSet<PositionId>(arrayFormulas);
     const arrayFormulaPositionId = this.getArrayFormulaSpreadingOnId(positionId);
-    if (arrayFormulaPositionId) {
+    if (arrayFormulaPositionId !== undefined) {
       // ignore the formula spreading on the position. Keep only the blocked ones
       cells.delete(arrayFormulaPositionId);
     }
@@ -221,8 +221,14 @@ export class Evaluator {
       }
       for (let i = 0; i < positionIds.length; ++i) {
         const cell = positionIds[i];
+        if (this.nextPositionsToUpdate.has(cell)) {
+          continue;
+        }
         this.setEvaluatedCell(cell, this.computeCell(cell));
       }
+    }
+    if (currentIteration >= MAX_ITERATION) {
+      console.warn("Maximum iteration reached while evaluating cells");
     }
   }
 
@@ -256,7 +262,7 @@ export class Evaluator {
         ? this.computeFormulaCell(cell)
         : evaluateLiteral(cell.content, { format: cell.format, locale: this.getters.getLocale() });
     } catch (e) {
-      return this.handleError(e, cell);
+      return this.handleError(e);
     } finally {
       this.cellsBeingComputed.delete(cellId);
     }
@@ -271,7 +277,7 @@ export class Evaluator {
     return evaluatedCell;
   }
 
-  private handleError(e: Error | any, cell: Cell): EvaluatedCell {
+  private handleError(e: Error | any): EvaluatedCell {
     if (!(e instanceof EvaluationError)) {
       e = new EvaluationError(CellErrorType.GenericError, e.message);
     }
@@ -314,11 +320,41 @@ export class Evaluator {
       // thanks to the isMatrix check above, we know that formulaReturn is MatrixFunctionReturn
       this.spreadValues(formulaPosition, formulaReturn)
     );
-
+    this.invalidatePositionsDependingOnSpread(formulaPosition, nbColumns, nbRows);
     return createEvaluatedCell(formulaReturn[0][0].value, {
       format: cellData.format || formulaReturn[0][0]?.format,
       locale: this.getters.getLocale(),
     });
+  }
+
+  private invalidatePositionsDependingOnSpread(
+    arrayFormulaPosition: CellPosition,
+    nbColumns: number,
+    nbRows: number
+  ) {
+    // the result matrix is split in 2 zones to exclude the array formula position
+    const top = arrayFormulaPosition.row;
+    const left = arrayFormulaPosition.col;
+    const bottom = top + nbRows - 1;
+    const leftColumnZone = {
+      top: top + 1,
+      bottom,
+      left,
+      right: left,
+    };
+    const rightPartZone = {
+      top,
+      bottom,
+      left: left + 1,
+      right: left + nbColumns - 1,
+    };
+    const sheetId = arrayFormulaPosition.sheetId;
+    const invalidatedPositions = this.formulaDependencies().getCellsDependingOn([
+      { sheetId, zone: rightPartZone },
+      { sheetId, zone: leftColumnZone },
+    ]);
+    invalidatedPositions.delete(this.encoder.encode(arrayFormulaPosition));
+    this.nextPositionsToUpdate.addMany(invalidatedPositions);
   }
 
   private assertSheetHasEnoughSpaceToSpreadFormulaResult(
@@ -397,10 +433,6 @@ export class Evaluator {
       const positionId = this.encoder.encode(position);
 
       this.setEvaluatedCell(positionId, evaluatedCell);
-
-      // check if formula dependencies present in the spread zone
-      // if so, they need to be recomputed
-      this.nextPositionsToUpdate.addMany(this.getCellsDependingOn([positionId]));
     };
   }
 
@@ -418,6 +450,7 @@ export class Evaluator {
       this.evaluatedCells.delete(child);
       this.nextPositionsToUpdate.addMany(this.getCellsDependingOn([child]));
       this.nextPositionsToUpdate.addMany(this.getArrayFormulasBlockedBy(child));
+      this.spreadingRelations.removeNode(child);
     }
     this.spreadingRelations.removeNode(positionId);
   }

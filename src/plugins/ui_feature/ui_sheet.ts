@@ -1,7 +1,13 @@
-import { GRID_ICON_MARGIN, ICON_EDGE_LENGTH, PADDING_AUTORESIZE_HORIZONTAL } from "../../constants";
+import {
+  DEFAULT_CELL_HEIGHT,
+  GRID_ICON_MARGIN,
+  ICON_EDGE_LENGTH,
+  PADDING_AUTORESIZE_HORIZONTAL,
+} from "../../constants";
 import {
   computeIconWidth,
   computeTextWidth,
+  getCellContentHeight,
   largeMax,
   positions,
   splitTextToWidth,
@@ -46,14 +52,7 @@ export class SheetUIPlugin extends UIPlugin {
         }
         break;
       case "AUTORESIZE_ROWS":
-        for (let row of cmd.rows) {
-          this.dispatch("RESIZE_COLUMNS_ROWS", {
-            elements: [row],
-            dimension: "ROW",
-            size: null,
-            sheetId: cmd.sheetId,
-          });
-        }
+        this.autoResizeRows(cmd.sheetId, cmd.rows);
         break;
     }
   }
@@ -105,6 +104,8 @@ export class SheetUIPlugin extends UIPlugin {
     const cell = this.getters.getCell(position);
     if (showFormula && cell?.isFormula) {
       return localizeFormula(cell.content, this.getters.getLocale());
+    } else if (showFormula && !cell?.content) {
+      return "";
     } else {
       return this.getters.getEvaluatedCell(position).formattedValue;
     }
@@ -154,6 +155,12 @@ export class SheetUIPlugin extends UIPlugin {
    */
   private checkZonesAreInSheet(cmd: Command): CommandResult {
     const sheetId = "sheetId" in cmd ? cmd.sheetId : this.getters.tryGetActiveSheetId();
+    if (
+      "ranges" in cmd &&
+      cmd.ranges.some((rangeData) => !this.getters.tryGetSheet(rangeData._sheetId))
+    ) {
+      return CommandResult.InvalidSheetId;
+    }
     const zones = this.getters.getCommandZones(cmd);
     if (!sheetId && zones.length > 0) {
       return CommandResult.NoActiveSheet;
@@ -162,5 +169,49 @@ export class SheetUIPlugin extends UIPlugin {
       return this.getters.checkZonesExistInSheet(sheetId, zones);
     }
     return CommandResult.Success;
+  }
+
+  private autoResizeRows(sheetId: UID, rows: HeaderIndex[]) {
+    const rowSizes: (number | null)[] = [];
+    for (const row of rows) {
+      let evaluatedRowSize = 0;
+      for (const cellId of this.getters.getRowCells(sheetId, row)) {
+        const cell = this.getters.getCellById(cellId);
+        if (!cell) {
+          continue;
+        }
+        const position = this.getters.getCellPosition(cell.id);
+        const colSize = this.getters.getColSize(sheetId, position.col);
+
+        if (cell.isFormula || this.getters.getArrayFormulaSpreadingOn(position)) {
+          const content = this.getters.getEvaluatedCell(position).formattedValue;
+          const evaluatedSize = getCellContentHeight(this.ctx, content, cell?.style, colSize);
+          if (evaluatedSize > evaluatedRowSize && evaluatedSize > DEFAULT_CELL_HEIGHT) {
+            evaluatedRowSize = evaluatedSize;
+          }
+        } else {
+          const content = cell.content;
+          const dynamicRowSize = getCellContentHeight(this.ctx, content, cell?.style, colSize);
+          // Only keep the size of evaluated cells if it's bigger than the dynamic row size
+          if (dynamicRowSize >= evaluatedRowSize && dynamicRowSize > DEFAULT_CELL_HEIGHT) {
+            evaluatedRowSize = 0;
+          }
+        }
+      }
+      rowSizes.push(evaluatedRowSize || null);
+    }
+
+    const groupedSizes = new Map<number | null, HeaderIndex[]>(rowSizes.map((size) => [size, []]));
+    for (let i = 0; i < rowSizes.length; i++) {
+      groupedSizes.get(rowSizes[i])?.push(rows[i]);
+    }
+    for (const [size, rows] of groupedSizes) {
+      this.dispatch("RESIZE_COLUMNS_ROWS", {
+        elements: rows,
+        dimension: "ROW",
+        size,
+        sheetId,
+      });
+    }
   }
 }

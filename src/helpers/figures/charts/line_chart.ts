@@ -180,8 +180,6 @@ export class LineChart extends AbstractChart {
   }
 
   getDefinitionForExcel(): ExcelChartDefinition | undefined {
-    // Excel does not support aggregating labels
-    if (this.aggregated) return undefined;
     const dataSets: ExcelChartDataset[] = this.dataSets
       .map((ds: DataSet) => toExcelDataset(this.getters, ds))
       .filter((ds) => ds.range !== "" && ds.range !== INCORRECT_RANGE_STRING);
@@ -236,8 +234,8 @@ function fixEmptyLabelsForDateCharts(
   return { labels: newLabels, dataSetsValues: newDatasets };
 }
 
-export function canChartParseLabels(labelRange: Range | undefined, getters: Getters): boolean {
-  return canBeDateChart(labelRange, getters) || canBeLinearChart(labelRange, getters);
+export function canChartParseLabels(chart: LineChart, getters: Getters): boolean {
+  return canBeDateChart(chart, getters) || canBeLinearChart(chart, getters);
 }
 
 function getChartAxisType(chart: LineChart, getters: Getters): AxisType {
@@ -251,31 +249,35 @@ function getChartAxisType(chart: LineChart, getters: Getters): AxisType {
 }
 
 function isDateChart(chart: LineChart, getters: Getters): boolean {
-  return !chart.labelsAsText && canBeDateChart(chart.labelRange, getters);
+  return !chart.labelsAsText && canBeDateChart(chart, getters);
 }
 
 function isLinearChart(chart: LineChart, getters: Getters): boolean {
-  return !chart.labelsAsText && canBeLinearChart(chart.labelRange, getters);
+  return !chart.labelsAsText && canBeLinearChart(chart, getters);
 }
 
-function canBeDateChart(labelRange: Range | undefined, getters: Getters): boolean {
-  if (!labelRange || !canBeLinearChart(labelRange, getters)) {
+function canBeDateChart(chart: LineChart, getters: Getters): boolean {
+  if (!chart.labelRange || !canBeLinearChart(chart, getters)) {
     return false;
   }
-  const labelFormat = getters.getEvaluatedCell({
-    sheetId: labelRange.sheetId,
-    col: labelRange.zone.left,
-    row: labelRange.zone.top,
-  }).format;
+  const labelFormat = getChartLabelFormat(
+    getters,
+    chart.labelRange,
+    shouldRemoveFirstLabel(chart.labelRange, chart.dataSets[0], chart.dataSetsHaveTitle)
+  );
   return Boolean(labelFormat && timeFormatLuxonCompatible.test(labelFormat));
 }
 
-function canBeLinearChart(labelRange: Range | undefined, getters: Getters): boolean {
-  if (!labelRange) {
+function canBeLinearChart(chart: LineChart, getters: Getters): boolean {
+  if (!chart.labelRange) {
     return false;
   }
 
-  const labels = getters.getRangeValues(labelRange);
+  const labels = getters.getRangeValues(chart.labelRange);
+  if (shouldRemoveFirstLabel(chart.labelRange, chart.dataSets[0], chart.dataSetsHaveTitle)) {
+    labels.shift();
+  }
+
   if (labels.some((label) => isNaN(Number(label)) && label)) {
     return false;
   }
@@ -356,11 +358,12 @@ export function createLineChartRuntime(chart: LineChart, getters: Getters): Line
   const labelValues = getChartLabelValues(getters, chart.dataSets, chart.labelRange);
   let labels = axisType === "linear" ? labelValues.values : labelValues.formattedValues;
   let dataSetsValues = getChartDatasetValues(getters, chart.dataSets);
-  if (
-    chart.dataSetsHaveTitle &&
-    dataSetsValues[0] &&
-    labels.length > dataSetsValues[0].data.length
-  ) {
+  const removeFirstLabel = shouldRemoveFirstLabel(
+    chart.labelRange,
+    chart.dataSets[0],
+    chart.dataSetsHaveTitle
+  );
+  if (removeFirstLabel) {
     labels.shift();
   }
 
@@ -377,7 +380,7 @@ export function createLineChartRuntime(chart: LineChart, getters: Getters): Line
   const dataSetFormat = getChartDatasetFormat(getters, chart.dataSets);
   const options = { format: dataSetFormat, locale, truncateLabels };
   const config = getLineConfiguration(chart, labels, options);
-  const labelFormat = getChartLabelFormat(getters, chart.labelRange)!;
+  const labelFormat = getChartLabelFormat(getters, chart.labelRange, removeFirstLabel)!;
   if (axisType === "time") {
     const axis = {
       type: "time",
@@ -399,15 +402,6 @@ export function createLineChartRuntime(chart: LineChart, getters: Getters): Line
 
   const colors = new ChartColors();
   for (let [index, { label, data }] of dataSetsValues.entries()) {
-    if (["linear", "time"].includes(axisType)) {
-      // Replace empty string labels by undefined to make sure chartJS doesn't decide that "" is the same as 0
-      data = data.map((y, index) => ({ x: labels[index] || undefined, y }));
-    }
-    const color = colors.next();
-    let backgroundRGBA = colorToRGBA(color);
-    if (chart.stacked) {
-      backgroundRGBA.a = LINE_FILL_TRANSPARENCY;
-    }
     if (chart.cumulative) {
       let accumulator = 0;
       data = data.map((value) => {
@@ -417,6 +411,16 @@ export function createLineChartRuntime(chart: LineChart, getters: Getters): Line
         }
         return value;
       });
+    }
+
+    if (["linear", "time"].includes(axisType)) {
+      // Replace empty string labels by undefined to make sure chartJS doesn't decide that "" is the same as 0
+      data = data.map((y, index) => ({ x: labels[index] || undefined, y }));
+    }
+    const color = colors.next();
+    let backgroundRGBA = colorToRGBA(color);
+    if (chart.stacked) {
+      backgroundRGBA.a = LINE_FILL_TRANSPARENCY;
     }
 
     const backgroundColor = rgbaToHex(backgroundRGBA);

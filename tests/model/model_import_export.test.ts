@@ -24,7 +24,6 @@ import {
   getMerges,
 } from "../test_helpers/getters_helpers";
 
-jest.mock("../../src/helpers/uuid", () => require("../__mocks__/uuid"));
 describe("data", () => {
   test("give default col size if not specified", () => {
     const model = new Model();
@@ -439,6 +438,7 @@ describe("Migrations", () => {
       ],
     });
     const data = model.exportData();
+    expect(data.version).toEqual(14.5);
     expect(data.sheets[0].filterTables).toEqual([{ range: "A1:C2" }]);
   });
 });
@@ -678,7 +678,7 @@ test("Data of a duplicate sheet are correctly duplicated", () => {
   const model = new Model();
   setCellContent(model, "A1", "hello");
   const sheetId = model.getters.getActiveSheetId();
-  model.dispatch("DUPLICATE_SHEET", { sheetId, sheetIdTo: "42" });
+  model.dispatch("DUPLICATE_SHEET", { sheetId, sheetIdTo: "42", sheetNameTo: "Copy of Sheet1" });
   expect(getCellContent(model, "A1", sheetId)).toBe("hello");
   expect(getCellContent(model, "A1", "42")).toBe("hello");
   const data = model.exportData();

@@ -285,7 +285,7 @@ export function debounce(func: Function, wait: number, immediate?: boolean): Fun
   let timeout;
   return function (this: any): void {
     const context = this;
-    const args = arguments;
+    const args = Array.from(arguments);
     function later() {
       timeout = null;
       if (!immediate) {
@@ -355,7 +355,7 @@ export function getAddHeaderStartIndex(position: "before" | "after", base: numbe
 /**
  * Compares two objects.
  */
-export function deepEquals(o1: any, o2: any, ignoreFunctions?: "ignoreFunctions"): boolean {
+export function deepEquals(o1: any, o2: any): boolean {
   if (o1 === o2) return true;
   if ((o1 && !o2) || (o2 && !o1)) return false;
   if (typeof o1 !== typeof o2) return false;
@@ -369,14 +369,10 @@ export function deepEquals(o1: any, o2: any, ignoreFunctions?: "ignoreFunctions"
   }
 
   for (const key in o1) {
-    const typeOfO1Key = typeof o1[key];
-    if (typeOfO1Key !== typeof o2[key]) return false;
-    if (typeOfO1Key === "object") {
-      if (!deepEquals(o1[key], o2[key], ignoreFunctions)) return false;
+    if (typeof o1[key] !== typeof o2[key]) return false;
+    if (typeof o1[key] === "object") {
+      if (!deepEquals(o1[key], o2[key])) return false;
     } else {
-      if (ignoreFunctions && typeOfO1Key === "function") {
-        continue;
-      }
       if (o1[key] !== o2[key]) return false;
     }
   }
@@ -401,9 +397,17 @@ export function deepEqualsArray(arr1: unknown[], arr2: unknown[]): boolean {
   return true;
 }
 
-/** Check if the given array contains all the values of the other array. */
+/**
+ * Check if the given array contains all the values of the other array.
+ * It makes the assumption that both array do not contain duplicates.
+ */
 export function includesAll<T>(arr: T[], values: T[]): boolean {
-  return values.every((value) => arr.includes(value));
+  if (arr.length < values.length) {
+    return false;
+  }
+
+  const set = new Set(arr);
+  return values.every((value) => set.has(value));
 }
 
 /**
@@ -420,7 +424,7 @@ export function removeFalsyAttributes(obj: Object): Object {
  *
  * https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Regular_Expressions/Character_Classes
  */
-const whiteSpaceSpecialCharacters = [
+const specialWhiteSpaceSpecialCharacters = [
   "\t",
   "\f",
   "\v",
@@ -435,16 +439,18 @@ const whiteSpaceSpecialCharacters = [
   String.fromCharCode(parseInt("3000", 16)),
   String.fromCharCode(parseInt("feff", 16)),
 ];
-const whiteSpaceRegexp = new RegExp(whiteSpaceSpecialCharacters.join("|") + "|(\r\n|\r|\n)", "g");
+export const specialWhiteSpaceRegexp = new RegExp(
+  specialWhiteSpaceSpecialCharacters.join("|"),
+  "g"
+);
+const newLineRegexp = /(\r\n|\r)/g;
 
 /**
- * Replace all the special spaces in a string (non-breaking, tabs, ...) by normal spaces, and all the
- * different newlines types by \n.
+ * Replace all different newlines characters by \n
  */
-export function replaceSpecialSpaces(text: string | undefined): string {
+export function replaceNewLines(text: string | undefined): string {
   if (!text) return "";
-  if (!whiteSpaceRegexp.test(text)) return text;
-  return text.replace(whiteSpaceRegexp, (match, newLine) => (newLine ? NEWLINE : " "));
+  return text.replace(newLineRegexp, NEWLINE);
 }
 
 /** Move the item at the starting index to the target index in an array */
@@ -476,12 +482,10 @@ export class JetSet<T> extends Set<T> {
     }
     return this;
   }
-  deleteMany(iterable: Iterable<T>): boolean {
-    let wasDeleted = false;
+  deleteMany(iterable: Iterable<T>) {
     for (const element of iterable) {
-      wasDeleted ||= super.delete(element);
+      super.delete(element);
     }
-    return wasDeleted;
   }
 }
 

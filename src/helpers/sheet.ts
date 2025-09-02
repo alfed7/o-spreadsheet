@@ -1,5 +1,6 @@
+import { _t } from "../translation";
 import { HeaderIndex, Row } from "../types";
-import { isDefined } from "./misc";
+import { getUnquotedSheetName, isDefined } from "./misc";
 
 export function createDefaultRows(rowNumber: number): Row[] {
   const rows: Row[] = [];
@@ -42,4 +43,35 @@ export function moveHeaderIndexesOnHeaderDeletion(
       return header;
     })
     .filter(isDefined);
+}
+
+export function getNextSheetName(existingNames: string[], baseName: string = "Sheet"): string {
+  let i = 1;
+  let name = `${baseName}${i}`;
+  while (existingNames.includes(name)) {
+    name = `${baseName}${i}`;
+    i++;
+  }
+  return name;
+}
+
+export function getDuplicateSheetName(nameToDuplicate: string, existingNames: string[]): string {
+  let i = 1;
+  const baseName = _t("Copy of %s", nameToDuplicate);
+  let name = baseName.toString();
+  while (existingNames.includes(name)) {
+    name = `${baseName} (${i})`;
+    i++;
+  }
+  return name;
+}
+
+export function isSheetNameEqual(name1: string | undefined, name2: string | undefined): boolean {
+  if (name1 === undefined || name2 === undefined) {
+    return false;
+  }
+  return (
+    getUnquotedSheetName(name1.trim().toUpperCase()) ===
+    getUnquotedSheetName(name2.trim().toUpperCase())
+  );
 }

@@ -1,16 +1,18 @@
 import {
   DEFAULT_CELL_HEIGHT,
+  DEFAULT_CELL_WIDTH,
   DEFAULT_FONT,
   DEFAULT_FONT_SIZE,
   GRID_ICON_MARGIN,
   ICON_EDGE_LENGTH,
+  MIN_CELL_TEXT_MARGIN,
   NEWLINE,
   PADDING_AUTORESIZE_HORIZONTAL,
   PADDING_AUTORESIZE_VERTICAL,
 } from "../../src/constants";
 import { arg, functionRegistry } from "../../src/functions";
 import { toString } from "../../src/functions/helpers";
-import { fontSizeInPixels, toCartesian, toZone } from "../../src/helpers";
+import { fontSizeInPixels, getCellContentHeight, toCartesian, toZone } from "../../src/helpers";
 import { Model } from "../../src/model";
 import {
   Arg,
@@ -37,6 +39,7 @@ import {
   setStyle,
 } from "../test_helpers/commands_helpers";
 import { getCell, getCellContent, getEvaluatedCell } from "../test_helpers/getters_helpers";
+import { spyUiPluginHandle } from "../test_helpers/helpers";
 
 function setDecimal(model: Model, step: SetDecimalStep) {
   model.dispatch("SET_DECIMAL", {
@@ -431,13 +434,14 @@ describe("Autoresize", () => {
   const TEXT = "text";
   const LONG_TEXT = "longText";
   let sizes: number[];
+  let ctx: CanvasRenderingContext2D;
   const hPadding = 2 * PADDING_AUTORESIZE_HORIZONTAL;
   const vPadding = 2 * PADDING_AUTORESIZE_VERTICAL;
 
   beforeEach(() => {
     model = new Model();
     sheetId = model.getters.getActiveSheetId();
-    const ctx = document.createElement("canvas").getContext("2d")!;
+    ctx = document.createElement("canvas").getContext("2d")!;
     ctx.font = `${fontSizeInPixels(DEFAULT_FONT_SIZE)}px ${DEFAULT_FONT}`;
     sizes = [TEXT, LONG_TEXT].map((text) => ctx.measureText(text).width);
   });
@@ -543,6 +547,66 @@ describe("Autoresize", () => {
     model.dispatch("AUTORESIZE_ROWS", { sheetId, rows: [0, 2] });
     expect(model.getters.getRowSize(sheetId, 0)).toBe(DEFAULT_CELL_HEIGHT);
     expect(model.getters.getRowSize(sheetId, 2)).toBe(fontSizeInPixels(24) + vPadding);
+  });
+
+  test("Only a single resize command is dispatched when auto-resizing multiple rows", () => {
+    const rows = [0, 1, 2];
+    resizeRows(model, rows, DEFAULT_CELL_HEIGHT + 30);
+    const handleCmd = spyUiPluginHandle(model);
+    model.dispatch("AUTORESIZE_ROWS", { sheetId, rows: [0, 1, 2] });
+    expect(handleCmd).toHaveBeenCalledTimes(2);
+    expect(handleCmd).toHaveBeenNthCalledWith(1, { type: "AUTORESIZE_ROWS", sheetId, rows });
+    expect(handleCmd).toHaveBeenNthCalledWith(2, {
+      type: "RESIZE_COLUMNS_ROWS",
+      elements: rows,
+      dimension: "ROW",
+      size: null,
+      sheetId,
+    });
+  });
+
+  test("Can autoresize a row with evaluated multi-line content", () => {
+    setCellContent(model, "A1", '="Hello\nThere"');
+    expect(model.getters.getRowSize(sheetId, 0)).toBe(DEFAULT_CELL_HEIGHT);
+    model.dispatch("AUTORESIZE_ROWS", { sheetId, rows: [0] });
+    const numberOfLines = 2;
+    const lineHeight = 13; // default font size in px
+    const expectedHeight =
+      numberOfLines * (lineHeight + MIN_CELL_TEXT_MARGIN) -
+      MIN_CELL_TEXT_MARGIN +
+      2 * PADDING_AUTORESIZE_VERTICAL;
+    expect(model.getters.getRowSize(sheetId, 0)).toBe(expectedHeight);
+  });
+
+  test("Evaluated multi-line content have no impact on autoresize if it's not taller than non-evaluated content", () => {
+    setCellContent(model, "A1", '="Hello\nThere"');
+
+    setCellContent(model, "B1", "Hello\nThere\nGeneral");
+    model.dispatch("AUTORESIZE_ROWS", { sheetId, rows: [0] });
+    expect(model.getters.getUserRowSize(sheetId, 0)).toBe(undefined);
+
+    setCellContent(model, "B1", "Hello\nThere");
+    model.dispatch("AUTORESIZE_ROWS", { sheetId, rows: [0] });
+    expect(model.getters.getUserRowSize(sheetId, 0)).toBe(undefined);
+
+    setCellContent(model, "B1", "Hello");
+    model.dispatch("AUTORESIZE_ROWS", { sheetId, rows: [0] });
+    expect(model.getters.getUserRowSize(sheetId, 0)).toBe(36);
+  });
+
+  test("Auto-resizes a row correctly when it contains an array formula result", () => {
+    setCellContent(model, "A1", "=RANDARRAY(2, 2)");
+    expect(model.getters.getRowSize(sheetId, 1)).toBe(DEFAULT_CELL_HEIGHT);
+    setStyle(model, "A2", { fontSize: 40 });
+    model.dispatch("AUTORESIZE_ROWS", { sheetId, rows: [1] });
+    const position = { sheetId, ...toCartesian("A2") };
+    const evaluatedSize = getCellContentHeight(
+      ctx,
+      model.getters.getEvaluatedCell(position).formattedValue,
+      model.getters.getCellStyle(position),
+      DEFAULT_CELL_WIDTH
+    );
+    expect(model.getters.getRowSize(sheetId, 1)).toBe(evaluatedSize);
   });
 
   test("Can autoresize a column in another sheet", () => {

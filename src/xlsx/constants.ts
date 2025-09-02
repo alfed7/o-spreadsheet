@@ -1,12 +1,13 @@
+import { IconSetType } from "../components/icons/icons";
 import { ExcelIconSet } from "../types/xlsx";
 
 /** In XLSX color format (no #)  */
 export const AUTO_COLOR = "000000";
 
-export const XLSX_ICONSET_MAP: Record<string, ExcelIconSet> = {
-  arrow: "3Arrows",
+export const XLSX_ICONSET_MAP: Record<IconSetType, ExcelIconSet> = {
+  arrows: "3Arrows",
   smiley: "3Symbols",
-  dot: "3TrafficLights1",
+  dots: "3TrafficLights1",
 };
 
 export const NAMESPACE = {
@@ -29,6 +30,7 @@ export const DRAWING_NS_C = "http://schemas.openxmlformats.org/drawingml/2006/ch
 export const CONTENT_TYPES = {
   workbook: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml",
   sheet: "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml",
+  metadata: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheetMetadata+xml",
   sharedStrings: "application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml",
   styles: "application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml",
   drawing: "application/vnd.openxmlformats-officedocument.drawing+xml",
@@ -42,6 +44,7 @@ export const CONTENT_TYPES = {
 export const XLSX_RELATION_TYPE = {
   document: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument",
   sheet: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet",
+  metadata: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/sheetMetadata",
   sharedStrings:
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings",
   styles: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles",
@@ -52,6 +55,8 @@ export const XLSX_RELATION_TYPE = {
   hyperlink: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink",
   image: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image",
 } as const;
+
+export const ARRAY_FORMULA_URI = "bdbb8cdc-fa1e-496e-a857-3c3f30c029c3";
 
 export const RELATIONSHIP_NSR =
   "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
@@ -108,6 +113,8 @@ export const NON_RETROCOMPATIBLE_FUNCTIONS = [
   "BITOR",
   "BITRSHIFT",
   "BITXOR",
+  "BYCOL",
+  "BYROW",
   "CEILING.MATH",
   "CEILING.PRECISE",
   "CHISQ.DIST",
@@ -115,6 +122,8 @@ export const NON_RETROCOMPATIBLE_FUNCTIONS = [
   "CHISQ.INV",
   "CHISQ.INV.RT",
   "CHISQ.TEST",
+  "CHOOSECOLS",
+  "CHOOSEROWS",
   "COMBINA",
   "CONCAT",
   "CONFIDENCE.NORM",
@@ -127,14 +136,17 @@ export const NON_RETROCOMPATIBLE_FUNCTIONS = [
   "CSCH",
   "DAYS",
   "DECIMAL",
+  "DROP",
   "ERF.PRECISE",
   "ERFC.PRECISE",
+  "EXPAND",
   "EXPON.DIST",
   "F.DIST",
   "F.DIST.RT",
   "F.INV",
   "F.INV.RT",
   "F.TEST",
+  "FIELDVALUE",
   "FILTERXML",
   "FLOOR.MATH",
   "FLOOR.PRECISE",
@@ -149,6 +161,7 @@ export const NON_RETROCOMPATIBLE_FUNCTIONS = [
   "GAMMA.INV",
   "GAMMALN.PRECISE",
   "GAUSS",
+  "HSTACK",
   "HYPGEOM.DIST",
   "IFNA",
   "IFS",
@@ -161,9 +174,14 @@ export const NON_RETROCOMPATIBLE_FUNCTIONS = [
   "IMSINH",
   "IMTAN",
   "ISFORMULA",
+  "ISOMITTED",
   "ISOWEEKNUM",
+  "LAMBDA",
+  "LET",
   "LOGNORM.DIST",
   "LOGNORM.INV",
+  "MAKEARRAY",
+  "MAP",
   "MAXIFS",
   "MINIFS",
   "MODE.MULT",
@@ -183,17 +201,26 @@ export const NON_RETROCOMPATIBLE_FUNCTIONS = [
   "PERMUTATIONA",
   "PHI",
   "POISSON.DIST",
+  "PQSOURCE",
+  "PYTHON_STR",
+  "PYTHON_TYPE",
+  "PYTHON_TYPENAME",
   "QUARTILE.EXC",
   "QUARTILE.INC",
   "QUERYSTRING",
+  "RANDARRAY",
   "RANK.AVG",
   "RANK.EQ",
+  "REDUCE",
   "RRI",
+  "SCAN",
   "SEC",
   "SECH",
+  "SEQUENCE",
   "SHEET",
   "SHEETS",
   "SKEW.P",
+  "SORTBY",
   "STDEV.P",
   "STDEV.S",
   "SWITCH",
@@ -203,13 +230,24 @@ export const NON_RETROCOMPATIBLE_FUNCTIONS = [
   "T.INV",
   "T.INV.2T",
   "T.TEST",
+  "TAKE",
+  "TEXTAFTER",
+  "TEXTBEFORE",
   "TEXTJOIN",
+  "TEXTSPLIT",
+  "TOCOL",
+  "TOROW",
   "UNICHAR",
   "UNICODE",
+  "UNIQUE",
   "VAR.P",
   "VAR.S",
+  "VSTACK",
   "WEBSERVICE",
   "WEIBULL.DIST",
+  "WRAPCOLS",
+  "WRAPROWS",
+  "XLOOKUP",
   "XOR",
   "Z.TEST",
 ];

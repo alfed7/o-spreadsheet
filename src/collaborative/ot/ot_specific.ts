@@ -116,6 +116,9 @@ function createSheetTransformation(
   toTransform: CreateSheetCommand,
   executed: CreateSheetCommand
 ): CreateSheetCommand {
+  if (toTransform.sheetId === executed.sheetId) {
+    toTransform = { ...toTransform, sheetId: `${toTransform.sheetId}~` };
+  }
   if (toTransform.name === executed.name) {
     return {
       ...toTransform,
@@ -137,10 +140,8 @@ function mergeTransformation(
   }
   const target: Zone[] = [];
   for (const zone1 of toTransform.target) {
-    for (const zone2 of executed.target) {
-      if (!overlap(zone1, zone2)) {
-        target.push({ ...zone1 });
-      }
+    if (executed.target.every((zone2) => !overlap(zone1, zone2))) {
+      target.push(zone1);
     }
   }
   if (target.length) {

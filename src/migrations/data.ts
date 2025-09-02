@@ -4,7 +4,16 @@ import {
   FORBIDDEN_IN_EXCEL_REGEX,
   FORMULA_REF_IDENTIFIER,
 } from "../constants";
-import { UuidGenerator, getItemId, overlap, toXC, toZone, zoneToXc } from "../helpers/index";
+import {
+  UuidGenerator,
+  getDuplicateSheetName,
+  getItemId,
+  getNextSheetName,
+  overlap,
+  toXC,
+  toZone,
+  zoneToXc,
+} from "../helpers/index";
 import { isValidLocale } from "../helpers/locale";
 import { StateUpdateMessage } from "../types/collaborative/transport_service";
 import {
@@ -26,7 +35,7 @@ import { normalizeV9 } from "./legacy_tools";
  * a breaking change is made in the way the state is handled, and an upgrade
  * function should be defined
  */
-export const CURRENT_VERSION = 14;
+export const CURRENT_VERSION = 14.5;
 const INITIAL_SHEET_ID = "Sheet1";
 
 /**
@@ -379,7 +388,7 @@ function forceUnicityOfFigure(data: Partial<WorkbookData>): Partial<WorkbookData
   for (const sheet of data.sheets || []) {
     for (const figure of sheet.figures || []) {
       if (figureIds.has(figure.id)) {
-        figure.id += uuidGenerator.uuidv4();
+        figure.id += uuidGenerator.smallUuid();
       }
       figureIds.add(figure.id);
     }
@@ -427,6 +436,7 @@ export function repairInitialMessages(
   initialMessages = dropCommands(initialMessages, "SORT_CELLS");
   initialMessages = dropCommands(initialMessages, "SET_DECIMAL");
   initialMessages = fixChartDefinitions(data, initialMessages);
+  initialMessages = fixTranslatedDuplicateSheetName(data, initialMessages);
   return initialMessages;
 }
 
@@ -550,6 +560,43 @@ function fixOverlappingFilters(data: any): any {
     }));
   }
   return data;
+}
+
+function fixTranslatedDuplicateSheetName(
+  data: Partial<WorkbookData>,
+  initialMessages: StateUpdateMessage[]
+): StateUpdateMessage[] {
+  const sheetNames = {};
+  for (const sheet of data.sheets || []) {
+    sheetNames[sheet.id] = sheet.name;
+  }
+  const messages: StateUpdateMessage[] = [];
+  for (const message of initialMessages) {
+    if (message.type === "REMOTE_REVISION") {
+      const commands: CoreCommand[] = [];
+      for (const cmd of message.commands) {
+        switch (cmd.type) {
+          case "DUPLICATE_SHEET":
+            cmd.sheetNameTo =
+              cmd.sheetNameTo ??
+              getDuplicateSheetName(sheetNames[cmd.sheetId], Object.values(sheetNames));
+            break;
+          case "CREATE_SHEET":
+          case "RENAME_SHEET":
+            sheetNames[cmd.sheetId] = cmd.name || getNextSheetName(Object.values(sheetNames));
+            break;
+        }
+        commands.push(cmd);
+      }
+      messages.push({
+        ...message,
+        commands,
+      });
+    } else {
+      messages.push(message);
+    }
+  }
+  return initialMessages;
 }
 
 // -----------------------------------------------------------------------------

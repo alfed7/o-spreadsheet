@@ -26,6 +26,8 @@ import {
   copy,
   createFilter,
   deleteColumns,
+  freezeColumns,
+  freezeRows,
   merge,
   paste,
   resizeColumns,
@@ -42,7 +44,6 @@ import { watchClipboardOutline } from "./test_helpers/renderer_helpers";
 MockCanvasRenderingContext2D.prototype.measureText = function (text: string) {
   return { width: text.length };
 };
-jest.mock("../src/helpers/uuid", () => require("./__mocks__/uuid"));
 
 function getBoxFromText(model: Model, text: string): Box {
   const rendererPlugin = getPlugin(model, RendererPlugin);
@@ -1274,39 +1275,32 @@ describe("renderer", () => {
   );
 
   test("Cell overflowing text centered is cut correctly when there's a border", () => {
-    () => {
-      const borders = ["right"];
-      const cellContent = "This is a long text larger than a cell";
-      const model = new Model({
-        sheets: [
-          { id: "sheet1", colNumber: 3, rowNumber: 3, cells: { B2: { content: cellContent } } },
-        ],
-      });
+    const cellContent = "This is a long text larger than a cell";
 
-      setStyle(model, "B2", { align: "center" });
+    const model = new Model();
+    resizeColumns(model, ["B"], 10);
+    setCellContent(model, "B2", cellContent);
+    setStyle(model, "B2", { align: "center" });
+    setZoneBorders(model, { position: "right" }, ["B2"]);
 
-      for (const border of borders) {
-        setZoneBorders(model, { position: border as BorderPosition }, ["B2"]);
-      }
-
-      let ctx = new MockGridRenderingContext(model, 1000, 1000, {});
-      model.drawGrid(ctx);
-      const box = getBoxFromText(model, cellContent);
-      const cell = getCell(model, "B2")!;
-      const textWidth = model.getters.getTextWidth(cell.content, cell.style || {});
-      const expectedClipRect = model.getters.getVisibleRect({
-        left: 0,
-        right: 1,
-        top: 1,
-        bottom: 1,
-      });
-      const expectedCLipX = box.x + box.width / 2 - textWidth / 2;
-      expect(box.clipRect).toEqual({
-        ...expectedClipRect,
-        x: expectedCLipX,
-        width: expectedClipRect.x + expectedClipRect.width - expectedCLipX,
-      });
-    };
+    let ctx = new MockGridRenderingContext(model, 1000, 1000, {});
+    model.drawGrid(ctx);
+    const box = getBoxFromText(model, cellContent);
+    const cell = getCell(model, "B2")!;
+    const textWidth =
+      model.getters.getTextWidth(cell.content, cell.style || {}) + MIN_CELL_TEXT_MARGIN;
+    const expectedClipRect = model.getters.getVisibleRect({
+      left: 0,
+      right: 1,
+      top: 1,
+      bottom: 1,
+    });
+    const expectedCLipX = box.x + box.width / 2 - textWidth / 2;
+    expect(box.clipRect).toEqual({
+      ...expectedClipRect,
+      x: expectedCLipX,
+      width: expectedClipRect.x + expectedClipRect.width - expectedCLipX,
+    });
   });
 
   test.each([
@@ -2061,5 +2055,62 @@ describe("renderer", () => {
     });
     model.drawGrid(ctx);
     expect(borderRenderingContext).toEqual([[1, [[1, 1]]]]);
+  });
+
+  test("Cells of splilled formula are empty is we display the formulas", () => {
+    const model = new Model({ sheets: [{ colNumber: 2, rowNumber: 2 }] });
+    model.dispatch("SET_FORMULA_VISIBILITY", { show: true });
+    setCellContent(model, "A1", "=MUNIT(2)");
+    let ctx = new MockGridRenderingContext(model, 1000, 1000, {});
+    model.drawGrid(ctx);
+    const boxes = getPlugin(model, RendererPlugin)["boxes"];
+    const boxesText = boxes.map((box) => box.content?.textLines.join(""));
+    expect(boxesText).toEqual(["=MUNIT(2)", "", "", ""]);
+  });
+
+  test("Each frozen pane is clipped in the grid", () => {
+    const model = new Model({ sheets: [{ colNumber: 7, rowNumber: 7 }] });
+
+    setCellContent(model, "A1", "1");
+    freezeColumns(model, 2);
+    freezeRows(model, 1);
+    const spyFn = jest.fn();
+    let ctx = new MockGridRenderingContext(model, 1000, 1000, {
+      onFunctionCall: (key, args) => {
+        if (["rect", "clip"].includes(key)) {
+          spyFn(key, args);
+        }
+      },
+    });
+    model.drawGrid(ctx);
+    expect(spyFn).toHaveBeenCalledTimes(8);
+    expect(spyFn).toHaveBeenNthCalledWith(1, "rect", [
+      0,
+      0,
+      DEFAULT_CELL_WIDTH * 2,
+      DEFAULT_CELL_HEIGHT,
+    ]);
+    expect(spyFn).toHaveBeenNthCalledWith(2, "clip", []);
+    expect(spyFn).toHaveBeenNthCalledWith(3, "rect", [
+      DEFAULT_CELL_WIDTH * 2,
+      0,
+      760,
+      DEFAULT_CELL_HEIGHT,
+    ]);
+    expect(spyFn).toHaveBeenNthCalledWith(4, "clip", []);
+    expect(spyFn).toHaveBeenNthCalledWith(5, "rect", [
+      0,
+      DEFAULT_CELL_HEIGHT,
+      DEFAULT_CELL_WIDTH * 2,
+      951,
+    ]);
+    expect(spyFn).toHaveBeenNthCalledWith(6, "clip", []);
+    expect(spyFn).toHaveBeenNthCalledWith(7, "rect", [
+      DEFAULT_CELL_WIDTH * 2,
+      DEFAULT_CELL_HEIGHT,
+      760,
+      951,
+    ]);
+    expect(spyFn).toHaveBeenNthCalledWith(8, "clip", []);
   });
 });

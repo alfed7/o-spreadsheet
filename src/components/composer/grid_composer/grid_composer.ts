@@ -94,18 +94,15 @@ export class GridComposer extends Component<Props, SpreadsheetChildEnv> {
   }
 
   get composerProps(): ComposerProps {
-    const { width, height } = this.env.model.getters.getSheetViewDimensionWithHeaders();
+    // Remove the wrapper border width
+    const maxHeight = this.props.gridDims.height - this.rect.y - 2 * COMPOSER_BORDER_WIDTH;
     return {
-      rect: { ...this.rect },
-      delimitation: {
-        width,
-        height,
-      },
       focus: this.props.focus,
       isDefaultFocus: true,
       onComposerContentFocused: this.props.onComposerContentFocused,
       onComposerCellFocused: this.props.onComposerCellFocused,
       onInputContextMenu: this.props.onInputContextMenu,
+      inputStyle: `max-height: ${maxHeight}px;`,
     };
   }
 
@@ -190,7 +187,7 @@ export class GridComposer extends Component<Props, SpreadsheetChildEnv> {
       return;
     }
     const sheetId = this.env.model.getters.getActiveSheetId();
-    const zone = this.env.model.getters.getSelectedZone();
+    const zone = positionToZone(this.env.model.getters.getSelection().anchor.cell);
     const rect = this.env.model.getters.getVisibleRect(zone);
     if (
       !deepEquals(rect, this.rect) ||

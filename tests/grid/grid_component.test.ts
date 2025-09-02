@@ -800,6 +800,13 @@ describe("Grid component", () => {
       expect(getHorizontalScroll()).toBe(1500);
     });
 
+    test("A1 is not set as hovered by default when opening the spreadsheet without mouse events", async () => {
+      setCellContent(model, "A1", "=1/0");
+      jest.advanceTimersByTime(400);
+      await nextTick();
+      expect(fixture.querySelector(".o-error-tooltip")).toBeNull();
+    });
+
     test("Scrolling the grid remove hover popover", async () => {
       setCellContent(model, "A10", "=1/0");
       await hoverCell(model, "A10", 400);
@@ -1375,6 +1382,14 @@ describe("Copy paste keyboard shortcut", () => {
     ({ parent, model, fixture } = await mountSpreadsheet());
     sheetId = model.getters.getActiveSheetId();
   });
+
+  test("Default paste is prevented when handled by the grid", async () => {
+    clipboardData.setText("Excalibur");
+    const pasteEvent = getClipboardEvent("paste", clipboardData);
+    document.body.dispatchEvent(pasteEvent);
+    expect(pasteEvent.defaultPrevented).toBeTruthy();
+  });
+
   test("Can paste from OS", async () => {
     selectCell(model, "A1");
     clipboardData.setText("Excalibur");

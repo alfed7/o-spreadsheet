@@ -1,4 +1,6 @@
 import { arg, functionRegistry } from "../../src/functions";
+import { NOW, TODAY } from "../../src/functions/module_date";
+import { RAND, RANDARRAY, RANDBETWEEN } from "../../src/functions/module_math";
 import { buildSheetLink, toXC } from "../../src/helpers";
 import { createEmptyExcelWorkbookData } from "../../src/migrations/data";
 import { Model } from "../../src/model";
@@ -6,6 +8,7 @@ import { BasePlugin } from "../../src/plugins/base_plugin";
 import { ExcelWorkbookData } from "../../src/types";
 import { adaptFormulaToExcel } from "../../src/xlsx/functions/cells";
 import { escapeXml, parseXML } from "../../src/xlsx/helpers/xml_helpers";
+
 import {
   createChart,
   createFilter,
@@ -18,7 +21,12 @@ import {
   updateFilter,
 } from "../test_helpers/commands_helpers";
 import { TEST_CHART_DATA } from "../test_helpers/constants";
-import { exportPrettifiedXlsx, mockChart, toRangesData } from "../test_helpers/helpers";
+import {
+  exportPrettifiedXlsx,
+  mockChart,
+  restoreDefaultFunctions,
+  toRangesData,
+} from "../test_helpers/helpers";
 
 function getExportedExcelData(model: Model): ExcelWorkbookData {
   model.dispatch("EVALUATE_CELLS");
@@ -76,6 +84,7 @@ const simpleData = {
         A38: { content: `='<Sheet2>'!B2` },
         A39: { content: `=A39` },
         A40: { content: `=(1+2)/3` },
+        A41: { content: "=#REF + 5" },
         K3: { border: 5 },
         K4: { border: 4 },
         K5: { border: 4 },
@@ -612,6 +621,50 @@ describe("Test XLSX export", () => {
                 },
               },
               {
+                id: "reversed",
+                ranges: ["B1:B5"],
+                rule: {
+                  type: "IconSetRule",
+                  icons: {
+                    upper: "arrowBad",
+                    middle: "arrowNeutral",
+                    lower: "arrowGood",
+                  },
+                  lowerInflectionPoint: {
+                    operator: "ge",
+                    type: "percentile",
+                    value: "33",
+                  },
+                  upperInflectionPoint: {
+                    operator: "gt",
+                    type: "percentile",
+                    value: "66",
+                  },
+                },
+              },
+              {
+                id: "limitation - reversed but different types",
+                ranges: ["B1:B5"],
+                rule: {
+                  type: "IconSetRule",
+                  icons: {
+                    upper: "arrowBad",
+                    middle: "arrowNeutral",
+                    lower: "smileyGood",
+                  },
+                  lowerInflectionPoint: {
+                    operator: "ge",
+                    type: "percentile",
+                    value: "33",
+                  },
+                  upperInflectionPoint: {
+                    operator: "gt",
+                    type: "percentile",
+                    value: "66",
+                  },
+                },
+              },
+              {
                 id: "full style",
                 ranges: ["A1:A5"],
                 rule: {
@@ -716,7 +769,71 @@ describe("Test XLSX export", () => {
     });
   });
 
+  test("Multi-line cells are exported with text wrap", async () => {
+    const model = new Model();
+    setCellContent(model, "A1", "This is a\nmultiline cell");
+
+    const exportedXlsx = await exportPrettifiedXlsx(model);
+    const styleSheet = parseXML(
+      exportedXlsx.files.find((f) => f["contentType"] === "styles")!["content"]
+    );
+    const workSheet = parseXML(
+      exportedXlsx.files.find((f) => f["contentType"] === "sheet")!["content"]
+    );
+
+    const A1 = workSheet.querySelector("c[r='A1']")!;
+    expect(A1.getAttribute("s")).toBe("1");
+
+    const styles = styleSheet.querySelectorAll("xf");
+    expect(styles[1].getAttribute("applyAlignment")).toBe("1");
+    expect(styles[1].querySelector("alignment")!.getAttribute("wrapText")).toBe("1");
+  });
+
+  test("Leading and trailing whitespace in strings are preserved", async () => {
+    const model = new Model();
+    setCellContent(model, "A1", "    Multiline with\n   leading and trailing spaces\n    ");
+
+    const exportedXlsx = await exportPrettifiedXlsx(model);
+    const sharedStrings = parseXML(
+      exportedXlsx.files.find((f) => f["contentType"] === "sharedStrings")!["content"]
+    );
+
+    const string = sharedStrings.querySelector("si t")!;
+    expect(string.getAttribute("xml:space")).toBe("preserve");
+    expect(string.textContent).toBe("    Multiline with\n   leading and trailing spaces\n    ");
+  });
+
   describe("formulas", () => {
+    beforeAll(() => {
+      functionRegistry.add("NOW", {
+        ...NOW,
+        compute: () => 1,
+      });
+      functionRegistry.add("RAND", {
+        ...RAND,
+        compute: () => 1,
+      });
+      functionRegistry.add("TODAY", {
+        ...TODAY,
+        compute: () => 1,
+      });
+      functionRegistry.add("RANDARRAY", {
+        ...RANDARRAY,
+        compute: () => [
+          [1, 1],
+          [1, 1],
+        ],
+      });
+      // @ts-ignore
+      functionRegistry.add("RANDBETWEEN", {
+        ...RANDBETWEEN,
+        compute: () => 1,
+      });
+    });
+
+    afterAll(() => {
+      restoreDefaultFunctions();
+    });
     test("All exportable formulas", async () => {
       const model = new Model(allExportableFormulasData);
       expect(await exportPrettifiedXlsx(model)).toMatchSnapshot();
@@ -956,42 +1073,13 @@ describe("Test XLSX export", () => {
     });
 
     test.each(["bar", "line", "pie"] as const)(
-      "%s chart that aggregate labels is exported as image",
+      "%s chart that aggregate labels is exported as normal chart, ignoring the aggregation",
       async (type: "bar" | "line" | "pie") => {
-        const model = new Model({
-          sheets: [
-            {
-              ...chartData.sheets,
-              cells: {
-                ...chartData.sheets[0].cells,
-                A6: { content: "P1" },
-                A7: { content: "P2" },
-                A8: { content: "P3" },
-                A9: { content: "P4" },
-                B6: { content: "17" },
-                B7: { content: "26" },
-                B8: { content: "13" },
-                B9: { content: "31" },
-                C6: { content: "31" },
-                C7: { content: "18" },
-                C8: { content: "9" },
-                C9: { content: "27" },
-              },
-            },
-          ],
-        });
-        createChart(
-          model,
-          {
-            dataSets: ["Sheet1!B1:B9"],
-            labelRange: "Sheet1!A2:A9",
-            aggregated: true,
-            type,
-          },
-          "1"
-        );
-        expect(getExportedExcelData(model).sheets[0].charts.length).toBe(0);
-        expect(getExportedExcelData(model).sheets[0].images.length).toBe(1);
+        const model = new Model();
+        createChart(model, { aggregated: true, type }, "1");
+        const exportedData = getExportedExcelData(model);
+        expect(exportedData.sheets[0].charts.length).toBe(1);
+        expect(exportedData.sheets[0].images.length).toBe(0);
       }
     );
 

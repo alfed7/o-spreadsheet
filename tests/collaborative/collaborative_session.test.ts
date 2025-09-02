@@ -1,10 +1,12 @@
 import { Model } from "../../src";
 import { Session } from "../../src/collaborative/session";
 import { DEBOUNCE_TIME, MESSAGE_VERSION } from "../../src/constants";
+import { lazy } from "../../src/helpers";
 import { buildRevisionLog } from "../../src/history/factory";
 import { Client, CommandResult, WorkbookData } from "../../src/types";
 import { MockTransportService } from "../__mocks__/transport_service";
 import { selectCell, setCellContent } from "../test_helpers/commands_helpers";
+import { nextTick } from "../test_helpers/helpers";
 
 describe("Collaborative session", () => {
   let transport: MockTransportService;
@@ -50,7 +52,7 @@ describe("Collaborative session", () => {
 
   test("local client leaves", () => {
     const spy = jest.spyOn(transport, "sendMessage");
-    session.leave({} as WorkbookData);
+    session.leave(lazy({} as WorkbookData));
     expect(spy).toHaveBeenCalledTimes(1);
     expect(spy).toHaveBeenCalledWith({
       type: "CLIENT_LEFT",
@@ -71,7 +73,7 @@ describe("Collaborative session", () => {
     });
     const spy = jest.spyOn(transport, "sendMessage");
     const data = { sheets: [{}] } as WorkbookData;
-    session.leave(data);
+    session.leave(lazy(data));
     expect(spy).toHaveBeenCalledWith({
       type: "SNAPSHOT",
       version: MESSAGE_VERSION,
@@ -81,7 +83,7 @@ describe("Collaborative session", () => {
     });
   });
 
-  test("do not snapshot when leaving if there are pending change", () => {
+  test("do not snapshot when leaving if there are pending change", async () => {
     const model = new Model(
       {},
       {
@@ -97,8 +99,34 @@ describe("Collaborative session", () => {
       // and leave before receiving the acknowledgement
       model.leaveSession();
     });
+    await nextTick();
     expect(spy).toHaveBeenCalledTimes(2);
     expect(spy).toHaveBeenCalledWith(expect.objectContaining({ type: "REMOTE_REVISION" }));
+    expect(spy).toHaveBeenCalledWith(expect.objectContaining({ type: "CLIENT_LEFT" }));
+  });
+
+  test("do not snapshot when leaving in read-only mode", async () => {
+    const model = new Model(
+      {},
+      {
+        mode: "readonly",
+        transportService: transport,
+        client: { id: "alice", name: "Alice" },
+      }
+    );
+    transport.sendMessage({
+      type: "REMOTE_REVISION",
+      version: MESSAGE_VERSION,
+      nextRevisionId: "42",
+      clientId: "client_42",
+      commands: [],
+      serverRevisionId: transport["serverRevisionId"],
+    });
+    const spy = jest.spyOn(transport, "sendMessage");
+    model.leaveSession();
+    await nextTick();
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).not.toHaveBeenCalledWith(expect.objectContaining({ type: "SNAPSHOT" }));
     expect(spy).toHaveBeenCalledWith(expect.objectContaining({ type: "CLIENT_LEFT" }));
   });
 
@@ -123,7 +151,7 @@ describe("Collaborative session", () => {
     });
     const spy = jest.spyOn(transport, "sendMessage");
     const data = { sheets: [{}] } as WorkbookData;
-    session.leave(data);
+    session.leave(lazy(data));
     expect(spy).toHaveBeenCalledTimes(1);
     expect(spy).toHaveBeenCalledWith({
       type: "CLIENT_LEFT",
@@ -220,7 +248,7 @@ describe("Collaborative session", () => {
 
   test("Leave the session do not crash", () => {
     session.move({ sheetId: "sheetId", col: 1, row: 2 });
-    session.leave({} as WorkbookData);
+    session.leave(lazy({} as WorkbookData));
     jest.advanceTimersByTime(DEBOUNCE_TIME + 100);
   });
 
